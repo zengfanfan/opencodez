@@ -16,9 +16,9 @@ Personal fork of [anomalyco/opencode](https://github.com/anomalyco/opencode). No
 - Upstream release tags for this fork are taken from the V2 line (`v2.x`). At the time of writing, GitHub's "Latest" release badge points at the V1 line, so do not use that badge to pick the base tag.
 - The fork inherited all upstream branches when it was created. Only `dev` and `v*-z` are maintained here; the other branches can be ignored.
 
-## Release check every 10 days
+## Release check (roughly every 11 days)
 
-Do not sync `dev`. Every 10 days, check upstream releases and only move to a release that has shown a stable gap:
+Do not sync `dev`. On the 1st, 12th, and 23rd of each month, check upstream releases and only move to a release that has shown a stable gap:
 
 1. Consider only non-draft, non-prerelease V2 tags (`v2.x.y`) newer than the tag the current `v*-z` branch is based on.
 2. Sort them by publish time.
@@ -31,20 +31,42 @@ This filters out a release that was followed by an emergency patch within 3 days
 Run the local check (reports only, does not create a branch):
 
 ```text
-D:\zeng\code\opencodez-check-release.cmd
+script\fork\check-release.cmd
 ```
 
 Override the base tag when needed:
 
 ```text
-D:\zeng\code\opencodez-check-release.cmd --base v2.3.2
+script\fork\check-release.cmd --base v2.3.2
 ```
 
 Create the branch only after reviewing the selected tag:
 
 ```text
-D:\zeng\code\opencodez-new-release.cmd vX.Y.Z
+script\fork\new-release.cmd vX.Y.Z
 ```
+
+## GitHub Actions check
+
+The scheduled check is `.github/workflows/opencodez-release-check.yml`:
+
+- It runs on the 1st, 12th, and 23rd at 01:00 UTC (09:00 in China).
+- It runs `script/fork/check-release.mjs` and `script/fork/release-notify.mjs`.
+- Manual runs default to dry-run. Run one from the Actions tab or with:
+
+  ```bash
+  gh workflow run opencodez-release-check.yml -R zengfanfan/opencodez -f dry_run=true
+  ```
+
+- A stable candidate opens an issue labeled `opencodez-release`.
+- If an older candidate issue is still open, the workflow comments with the reason, closes it, and opens a new issue.
+- If the selected candidate is already tracked (open or closed), the workflow does nothing.
+- All inherited upstream workflows are disabled; only this workflow is active.
+- Public repositories disable scheduled workflows after 60 days without repository activity. Re-enable it manually if GitHub stops it:
+
+  ```bash
+  gh workflow enable opencodez-release-check -R zengfanfan/opencodez
+  ```
 
 ## Create the next release branch
 
