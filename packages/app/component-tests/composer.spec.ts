@@ -1,5 +1,23 @@
 import { expect, story } from "../../stories/playwright/story"
 
+story("agent mode is an icon toggle that cycles without a menu", async ({ mount }) => {
+  const component = await mount("opencode-composer-flow--toolbar-overflow", { args: { alternate: "none" } })
+  const agent = component.locator('[data-action="composer-agent"]')
+
+  await expect(agent.locator("use")).toHaveAttribute("href", "#opencode-v2-icon-flask")
+  await expect(agent.locator("svg")).toHaveCSS("color", "rgba(238, 115, 48, 0.8)")
+  await expect(agent).toHaveAccessibleName(/^Build .* mode\. Switch to Plan$/)
+  await agent.click()
+  await expect(component.getByText("Selected plan", { exact: true })).toBeVisible()
+  await expect(agent.locator("use")).toHaveAttribute("href", "#opencode-v2-icon-post-skill")
+  await expect(agent.locator("svg")).toHaveCSS("color", "rgb(59, 92, 246)")
+  await expect(agent).toHaveAccessibleName("Plan mode. Switch to Review")
+  await agent.click()
+  await expect(component.getByText("Selected review", { exact: true })).toBeVisible()
+  await expect(agent.locator("use")).toHaveAttribute("href", "#opencode-v2-icon-outline-brain")
+  await expect(component.getByRole("menu")).toHaveCount(0)
+})
+
 story("cycles full prompts with plain arrows without opening the picker", async ({ mount, page }) => {
   const component = await mount("opencode-composer-flow--prompt-history")
   const input = component.getByRole("textbox", { name: "Prompt", exact: true })
@@ -343,7 +361,7 @@ for (const direction of ["ltr", "rtl"]) {
       const actions = component.locator('[data-slot="composer-actions"]')
       const submit = component.locator('[data-action="composer-submit"]')
       const add = component.locator('[data-action="composer-attach"]')
-      const agent = controls.getByRole("button", { name: "Choose agent" })
+      const agent = controls.locator('[data-action="composer-agent"]')
       const variant = controls.getByRole("button", { name: "Choose model variant" })
       await expect(controls).toHaveCSS("overflow-x", "auto")
       await expect(controls).toHaveCSS("overscroll-behavior-x", "contain")
@@ -473,13 +491,13 @@ story("does not mask or pad controls when they fit", async ({ mount }) => {
 story("keeps toolbar focus rings whole and keyboard-only", async ({ mount, page }) => {
   const component = await mount("opencode-composer-flow--toolbar-overflow", { args: { alternate: "none" } })
   const controls = component.locator('[data-slot="composer-controls"]')
-  const agent = controls.getByRole("button", { name: "Choose agent" })
+  const agent = controls.locator('[data-action="composer-agent"]')
   const variant = controls.getByRole("button", { name: "Choose model variant" })
   await page.evaluate(() => document.fonts.ready.then(() => undefined))
 
   // Arriving from the keyboard on a control parked half under the edge scrolls all of it, ring included, into view.
   await controls.evaluate((element) => {
-    const control = element.querySelector('[aria-label="Choose agent"]')!.getBoundingClientRect()
+    const control = element.querySelector('[data-action="composer-agent"]')!.getBoundingClientRect()
     element.scrollLeft = control.width / 2
   })
   await page.keyboard.press("Shift")

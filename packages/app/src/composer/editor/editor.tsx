@@ -483,14 +483,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
           >
             <div ref={controlsContent} class="flex h-full w-max min-w-full items-center gap-0.5">
               <Show when={view.agent} keyed>
-                {(control) => (
-                  <ComposerEditorConfiguredSelect
-                    fitMenuToOptions
-                    title={i18n.t("ui.promptInput.chooseAgent")}
-                    keybind={["Mod", "."]}
-                    control={control}
-                  />
-                )}
+                {(control) => <ComposerEditorAgentToggle control={control} />}
               </Show>
               <Show when={props.modelControlsVisible ?? true}>
                 {props.modelControl}
@@ -1063,9 +1056,65 @@ function pointerFocusReturn() {
   }
 }
 
+// A click cycles the primary agents in list order; with the default Build/Plan list that is a two-way toggle.
+const agentIcons = new Map([
+  ["plan", "post-skill"],
+  ["build", "flask"],
+])
+
+const agentTones = new Map([
+  ["plan", "text-v2-agent-plan-solid"],
+  ["build", "text-v2-agent-build-solid"],
+])
+
+function ComposerEditorAgentToggle(props: { control: ComposerSelectControl }) {
+  const i18n = useI18n()
+  const current = () => props.control.current()
+  const options = () => props.control.options()
+
+  const next = () => {
+    const items = options()
+    const index = items.findIndex((item) => item.id === current())
+
+    return items[(index + 1) % items.length] ?? items[0]
+  }
+
+  const name = (id: string | undefined) => {
+    const label = options().find((item) => item.id === id)?.label ?? id ?? ""
+
+    return label.slice(0, 1).toUpperCase() + label.slice(1)
+  }
+
+  const label = () => i18n.t("ui.promptInput.agentMode", { current: name(current()), next: name(next()?.id) })
+
+  return (
+    <Tooltip
+      placement="top"
+      value={
+        <>
+          {label()}
+          <Keybind keys={props.control.keybind?.() ?? []} variant="neutral" />
+        </>
+      }
+    >
+      <IconButton
+        data-action="composer-agent"
+        variant="ghost-muted"
+        size="large"
+        aria-label={label()}
+        icon={<Icon name={agentIcons.get(current()) ?? "outline-brain"} class={agentTones.get(current())} />}
+        onClick={() => {
+          const item = next()
+
+          if (item) props.control.onSelect(item.id)
+        }}
+      />
+    </Tooltip>
+  )
+}
+
 function ComposerEditorConfiguredSelect(props: {
   mobileDrawer?: boolean
-  fitMenuToOptions?: boolean
   title: string
   keybind?: string[]
   control: ComposerSelectControl
@@ -1078,7 +1127,6 @@ function ComposerEditorConfiguredSelect(props: {
   return (
     <ComposerEditorSelect
       mobileDrawer={props.mobileDrawer}
-      fitMenuToOptions={props.fitMenuToOptions}
       title={props.title}
       class={props.class}
       keybind={props.control.keybind?.() ?? props.keybind}
@@ -1096,8 +1144,6 @@ function ComposerEditorConfiguredSelect(props: {
 
 function ComposerEditorSelect(props: {
   mobileDrawer?: boolean
-  /** Size the menu to its longest option instead of the shared 160px minimum, with room before the check. */
-  fitMenuToOptions?: boolean
   title: string
   keybind?: string[]
   options: ComposerOption[]
@@ -1161,18 +1207,11 @@ function ComposerEditorSelect(props: {
               {content()}
             </Menu.Trigger>
             <Menu.Portal>
-              <Menu.Content
-                onCloseAutoFocus={focus.onCloseAutoFocus}
-                class={props.fitMenuToOptions ? "!min-w-0" : undefined}
-              >
+              <Menu.Content onCloseAutoFocus={focus.onCloseAutoFocus}>
                 <Menu.RadioGroup value={props.current} onChange={props.onSelect}>
                   <For each={props.options}>
                     {(option) => (
-                      <Menu.RadioItem
-                        value={option.id}
-                        class={props.fitMenuToOptions ? "capitalize !gap-6" : "capitalize"}
-                        closeOnSelect
-                      >
+                      <Menu.RadioItem value={option.id} class="capitalize" closeOnSelect>
                         {option.label}
                       </Menu.RadioItem>
                     )}

@@ -1639,7 +1639,7 @@ test("shows thinking on hover or a non-default selection while preserving keyboa
   await page.keyboard.press("Tab")
   await expect(composer.getByRole("button", { name: "Add images and files" })).toBeFocused()
   await page.keyboard.press("Tab")
-  await expect(composer.getByRole("button", { name: "Choose agent" })).toBeFocused()
+  await expect(composer.locator('[data-action="composer-agent"]')).toBeFocused()
   await page.keyboard.press("Tab")
   await expect(composer.getByRole("button", { name: "Thinking Model" })).toBeFocused()
   await page.keyboard.press("Tab")

@@ -257,6 +257,9 @@
 --v2-icon-icon-accent: var(--v2-blue-600);
 --v2-icon-icon-accent-hover: var(--v2-blue-700);
 
+--v2-agent-plan-solid: var(--v2-agent-plan-solid);
+--v2-agent-build-solid: var(--v2-agent-build-solid);
+
 --v2-border-border-muted: var(--v2-alpha-dark-8);
 --v2-border-border-base: var(--v2-alpha-dark-10);
 --v2-border-border-strong: var(--v2-alpha-dark-20);

@@ -242,6 +242,7 @@ const source = {
   "ui.promptInput.context": "Context",
   "ui.promptInput.shell": "Shell command",
   "ui.promptInput.chooseAgent": "Choose agent",
+  "ui.promptInput.agentMode": "{{current}} mode. Switch to {{next}}",
   "ui.promptInput.chooseModel": "Choose model",
   "ui.promptInput.chooseVariant": "Choose model variant",
   "ui.promptInput.send": "Send",

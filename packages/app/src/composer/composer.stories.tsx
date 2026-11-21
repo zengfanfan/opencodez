@@ -79,6 +79,7 @@ function ComposerStory(props: {
 
   const [story, setStory] = createStore({
     activity: props.label ?? "Ready",
+    agent: "build",
     variant: STORY_MODEL.variant,
   })
 
@@ -217,10 +218,14 @@ function ComposerStory(props: {
       agent: {
         options: () => [
           { id: "build", label: props.longLabels ? "Build agent with an unusually long name" : "build" },
+          { id: "plan", label: "plan" },
           { id: "review", label: "review" },
         ],
-        current: () => "build",
-        onSelect: (agent) => setStory("activity", `Selected ${agent}`),
+        current: () => story.agent,
+        onSelect: (agent) => {
+          setStory("activity", `Selected ${agent}`)
+          setStory("agent", agent)
+        },
       },
       variant: {
         options: () => [
