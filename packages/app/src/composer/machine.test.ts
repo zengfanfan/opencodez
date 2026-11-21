@@ -166,6 +166,18 @@ describe("composer submit machine", () => {
     ])
   })
 
+  test("records the first prompt in the Session it started", () => {
+    const first = snapshot()
+    const result = replay([{ type: "submit", snapshot: first, done }, started(1)])
+
+    expect(result.effects).toContainEqual({
+      type: "history.record",
+      prompt: first.draft.prompt,
+      mode: "normal",
+      session,
+    })
+  })
+
   test("reuses a failed prompt's ID only for the same prompt, never for a shell or server command", () => {
     const sent = (input: Partial<SubmitSnapshot>, prompt?: Prompt) =>
       transitionComposerSubmit(createComposerSubmitState(), {

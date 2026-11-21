@@ -1,5 +1,6 @@
 import { type SetStoreFunction, type Store } from "solid-js/store"
 import type { Prompt } from "@/composer/state"
+import type { Platform } from "@/runtime/platform/platform"
 import { Persist, persisted } from "@/runtime/persistence/storage"
 import {
   clonePromptHistoryComments,
@@ -10,6 +11,7 @@ import {
 } from "./entry"
 import { clonePrompt } from "../prompt-parts"
 import { PromptHistoryState } from "../schema"
+import { historyTarget, type ComposerHistoryScope } from "./target"
 
 export type ComposerHistoryStore = {
   entries: (mode: "normal" | "shell") => PromptHistoryStoredEntry[]
@@ -46,17 +48,19 @@ function createComposerHistoryStore(
   }
 }
 
-export function createComposerHistory() {
+export function createComposerHistory(scope?: ComposerHistoryScope, platform?: Platform) {
   const [normal, setNormal, normalInit] = persisted(
-    Persist.prompt(Persist.global("prompt-history")),
+    Persist.prompt(historyTarget(scope, "prompt-history")),
     PromptHistoryState,
     { entries: [] },
+    platform,
   )
 
   const [shell, setShell, shellInit] = persisted(
-    Persist.prompt(Persist.global("prompt-history-shell")),
+    Persist.prompt(historyTarget(scope, "prompt-history-shell")),
     PromptHistoryState,
     { entries: [] },
+    platform,
   )
 
   const history = createComposerHistoryStore(normal, setNormal, shell, setShell)

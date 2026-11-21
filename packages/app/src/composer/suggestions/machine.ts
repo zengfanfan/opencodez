@@ -330,7 +330,8 @@ function stepHistory(
 
     return changed(
       { ...state, popover: { type: "browsing", index, saved: browsing?.saved ?? event.capture() }, focus: "editor" },
-      [{ type: "history.apply", entry, cursor: 0 }],
+      // The caret lands after the recalled text, where a new edit would continue it.
+      [{ type: "history.apply", entry }],
       true,
     )
   }

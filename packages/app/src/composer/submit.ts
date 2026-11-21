@@ -50,8 +50,13 @@ type ComposerSubmitInput = {
   commands: Accessor<readonly { name: string }[] | undefined>
   editor: () => HTMLDivElement | undefined
   queueScroll: () => void
-  addToHistory: (prompt: Prompt, mode: "normal" | "shell") => void
-  removeFromHistory: (prompt: Prompt, mode: "normal" | "shell", comments: PromptHistoryComment[]) => void
+  addToHistory: (prompt: Prompt, mode: "normal" | "shell", session?: ComposerSession) => void
+  removeFromHistory: (
+    prompt: Prompt,
+    mode: "normal" | "shell",
+    comments: PromptHistoryComment[],
+    session?: ComposerSession,
+  ) => void
   resetHistory: () => void
   closePopover: () => void
   delivery?: (alternate: boolean) => ComposerDelivery
@@ -208,7 +213,7 @@ export function createComposerSubmit(input: ComposerSubmitInput) {
     }
 
     if (effect.type === "history.record") {
-      input.addToHistory(effect.prompt, effect.mode)
+      input.addToHistory(effect.prompt, effect.mode, effect.session)
       input.resetHistory()
 
       return
@@ -609,6 +614,7 @@ function restoreSubmission(
     value: ComposerSubmission
     kind: SubmissionKind
     comments: PromptHistoryComment[]
+    session: ComposerSession
   },
   back: ClearedComposer,
 ) {
@@ -626,7 +632,12 @@ function restoreSubmission(
 // Puts a cleared draft back, unless the composer changed since it cleared: then the edit is the user's.
 function restoreDraft(
   input: ComposerSubmitInput,
-  submission: { draft: CapturedDraft; mode: "normal" | "shell"; comments: PromptHistoryComment[] },
+  submission: {
+    draft: CapturedDraft
+    mode: "normal" | "shell"
+    comments: PromptHistoryComment[]
+    session?: ComposerSession
+  },
   back: ClearedComposer,
 ) {
   const target = submission.draft.target
@@ -636,7 +647,7 @@ function restoreDraft(
   const kept = back.edited ? input.comments.capture() : []
   const prompt = following ? appendPrompt(submission.draft.prompt, following) : submission.draft.prompt
   // The prompt is back in the composer; its history entry would only keep attachments referenced.
-  input.removeFromHistory(submission.draft.prompt, submission.mode, submission.comments)
+  input.removeFromHistory(submission.draft.prompt, submission.mode, submission.comments, submission.session)
   target.set(prompt, promptLength(prompt))
   target.mode.set(submission.mode)
   const sent = new Set(submission.draft.context.map((item) => item.key))

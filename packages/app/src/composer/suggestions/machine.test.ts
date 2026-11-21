@@ -276,7 +276,7 @@ function history(height?: number): ComposerInteractionState {
 test("searching history from a recalled entry still cancels back to the draft the user wrote", () => {
   const recalled = transitionComposer(createComposerInteractionState(), step("up"), persisted())
   expect(recalled.state.popover).toEqual({ type: "browsing", index: 0, saved: written })
-  expect(recalled.commands).toEqual([{ type: "history.apply", entry: entries[0], cursor: 0 }])
+  expect(recalled.commands).toEqual([{ type: "history.apply", entry: entries[0] }])
 
   // Shift+ArrowUp captures what the composer shows now: the recalled entry, not the draft.
   const shown: ComposerSavedDraft = { entry: entries[0]!, cursor: 0 }

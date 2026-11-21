@@ -52,15 +52,17 @@ story("cycles full prompts with plain arrows without opening the picker", async 
   await input.press("ArrowUp")
   await input.press("ArrowUp")
   await expect(input).toHaveText("Review the composer layout\nKeep keyboard navigation accessible")
-  await input.press("ArrowRight")
+  // A recalled prompt leaves the caret at its end, so typing continues it.
+  await input.pressSequentially("!")
+  await expect(input).toHaveText("Review the composer layout\nKeep keyboard navigation accessible!")
+  // A non-empty composer keeps Shift+ArrowUp from opening the picker.
   await input.press("Shift+ArrowUp")
   await expect(options).toHaveCount(0)
-  await expect.poll(() => input.evaluate(() => window.getSelection()?.toString())).toBe("R")
+  // Away from either end, ArrowUp moves the caret instead of stepping through history.
   await input.press("ArrowRight")
-  await input.pressSequentially("!")
-  await expect(input).toHaveText("R!eview the composer layout\nKeep keyboard navigation accessible")
+  await input.press("ArrowLeft")
   await input.press("ArrowUp")
-  await expect(input).toHaveText("R!eview the composer layout\nKeep keyboard navigation accessible")
+  await expect(input).toHaveText("Review the composer layout\nKeep keyboard navigation accessible!")
 
   await input.press("ControlOrMeta+a")
   await input.press("Delete")

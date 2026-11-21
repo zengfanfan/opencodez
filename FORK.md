@@ -96,7 +96,14 @@ gh repo edit zengfanfan/opencodez --default-branch vX.Y.Z-z
 
 | Change | Upstream issue/PR | Files | Tests | Status |
 | --- | --- | --- | --- | --- |
-| Per-session prompt history | #52154 | `packages/app/src/composer/history/store.ts`, `packages/app/src/composer/model.ts` | pending | planned |
+| Per-session prompt history | #52154 | `packages/app/src/composer/history/target.ts`, `packages/app/src/composer/history/store.ts`, `packages/app/src/composer/history/registry.ts`, `packages/app/src/composer/model.ts`, `packages/app/src/composer/adapter.ts`, `packages/app/src/new-session/composer-adapter.ts` | `packages/app/src/composer/history/target.test.ts`, `packages/app/src/composer/history/registry.test.ts`, `packages/app/src/composer/submit.test.ts` | implemented on this branch |
+
+Known behavior:
+
+- Each active session keeps its own normal and shell history, scoped by server, directory, and session ID.
+- The first prompt that creates a session is recorded in that session's history. Failed sends remove it again.
+- Existing global prompt history is not imported, and sessions created before this change are not backfilled. Per-session history starts empty.
+- Recalling an entry puts the caret at the end of the restored text; going back past the newest entry restores the draft and its caret.
 
 ## Build and release
 

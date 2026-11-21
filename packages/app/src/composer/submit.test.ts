@@ -71,7 +71,16 @@ function active(state: ComposerStateTarget, target: ComposerSession, ctl = contr
 }
 
 function fresh(state: ComposerStateTarget, start: NewSessionComposerAdapter["start"]): NewSessionComposerAdapter {
-  return { kind: "new-session", state, ready: () => true, controls, working: () => false, submitted() {}, start }
+  return {
+    kind: "new-session",
+    draftID: "test-draft",
+    state,
+    ready: () => true,
+    controls,
+    working: () => false,
+    submitted() {},
+    start,
+  }
 }
 
 function submitInput(
@@ -86,6 +95,7 @@ function submitInput(
   history: string[] = [],
   clientCommand?: (text: string) => (() => void | Promise<void>) | undefined,
   delivery: (alternate: boolean) => ComposerDelivery = () => "steer",
+  sessionLog?: (string | undefined)[],
 ) {
   return createComposerSubmit({
     adapter,
@@ -95,10 +105,14 @@ function submitInput(
     delivery,
     editor: () => undefined,
     queueScroll() {},
-    addToHistory: (prompt) =>
-      history.push(`add:${prompt.map((part) => ("content" in part ? part.content : part.type)).join("")}`),
-    removeFromHistory: (prompt) =>
-      history.push(`remove:${prompt.map((part) => ("content" in part ? part.content : part.type)).join("")}`),
+    addToHistory: (prompt, _mode, session) => {
+      history.push(`add:${prompt.map((part) => ("content" in part ? part.content : part.type)).join("")}`)
+      sessionLog?.push(session?.id)
+    },
+    removeFromHistory: (prompt, _mode, _comments, session) => {
+      history.push(`remove:${prompt.map((part) => ("content" in part ? part.content : part.type)).join("")}`)
+      sessionLog?.push(session?.id)
+    },
     resetHistory() {},
     closePopover() {},
     notify,
@@ -970,6 +984,65 @@ describe("Composer submission", () => {
     expect(promoted.current()).toMatchObject([{ type: "text", content: "first prompt" }])
     expect(promoted.context.items()).toMatchObject([{ type: "file", path: "src/app.ts", comment: "Keep this comment" }])
     expect(promoted.mode.current()).toBe("shell")
+  })
+
+  test("records a first prompt in the Session it created", async () => {
+    const draft = createMemoryComposerState({ prompt: "first prompt" }).capture()
+    const promoted = createMemoryComposerState().capture()
+    const target = session({ calls: [] })
+    const history: string[] = []
+    const scopes: (string | undefined)[] = []
+
+    await submitInput(
+      fresh(draft, async (_selection, submission) => {
+        submission.retarget(promoted)
+
+        return { session: target, cleanupReady: Promise.resolve() }
+      }),
+      undefined,
+      "normal",
+      () => [],
+      history,
+      undefined,
+      undefined,
+      scopes,
+    ).submit(new Event("submit"))
+
+    expect(history).toEqual(["add:first prompt"])
+    expect(scopes).toEqual([target.id])
+  })
+
+  test("removes a failed first prompt from the Session it created", async () => {
+    const draft = createMemoryComposerState({ prompt: "first prompt" }).capture()
+    const promoted = createMemoryComposerState().capture()
+    const failed = Promise.withResolvers<void>()
+
+    const target = session({
+      calls: [],
+      prompt: async () => Promise.reject(new Error("network unavailable")),
+    })
+
+    const history: string[] = []
+    const scopes: (string | undefined)[] = []
+
+    await submitInput(
+      fresh(draft, async (_selection, submission) => {
+        submission.retarget(promoted)
+
+        return { session: target, cleanupReady: Promise.resolve() }
+      }),
+      { missingSelection() {}, unqueueable() {}, failed: () => failed.resolve() },
+      "normal",
+      () => [],
+      history,
+      undefined,
+      undefined,
+      scopes,
+    ).submit(new Event("submit"))
+    await failed.promise
+
+    expect(history).toEqual(["add:first prompt", "remove:first prompt"])
+    expect(scopes).toEqual([target.id, target.id])
   })
 
   test("moves a first prompt and its quote sources to the promoted Session, and recovers it with the follow-up typed there", async () => {

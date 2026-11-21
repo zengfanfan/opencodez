@@ -166,7 +166,7 @@ export type ComposerSubmitEffect =
       context: ComposerSubmission["context"]
       sources: CapturedDraft["sources"]
     }
-  | { type: "history.record"; prompt: Prompt; mode: "normal" | "shell" }
+  | { type: "history.record"; prompt: Prompt; mode: "normal" | "shell"; session: ComposerSession }
   | {
       type: "handoff"
       attempt: number
@@ -262,7 +262,9 @@ export function transitionComposerSubmit(
       state: { ...state, type: "handing-off", value, session: event.session },
       effects: [
         // A shown hold recorded it when it left the composer.
-        ...(state.cleared ? [] : [{ type: "history.record" as const, prompt: value.prompt, mode: value.mode }]),
+        ...(state.cleared
+          ? []
+          : [{ type: "history.record" as const, prompt: value.prompt, mode: value.mode, session: event.session }]),
         {
           type: "handoff",
           attempt: state.attempt,

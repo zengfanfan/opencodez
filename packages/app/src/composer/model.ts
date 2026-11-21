@@ -26,11 +26,12 @@ import { parseSessionMention } from "@opencode/util/session-mention"
 import { createKnownServerSessions, createServerSessionEntries } from "@/shell/commands/palette"
 import { rankSessionTitle } from "./session-match"
 import { useTabs } from "@/shell/tabs/tabs"
-import type { ComposerAdapter, ComposerControls, ComposerQueue } from "./adapter"
+import type { ComposerAdapter, ComposerControls, ComposerQueue, ComposerSession } from "./adapter"
 import { isAttachment } from "./prompt-parts"
-import { isCommentItem } from "./state"
+import { isCommentItem, type Prompt } from "./state"
 import type { PromptHistoryComment } from "./history/entry"
-import { createComposerHistory } from "./history/store"
+import type { ComposerHistoryScope } from "./history/target"
+import { composerHistory } from "./history/registry"
 import { createComposerSubmit } from "./submit"
 import { composerSubmitView } from "./machine"
 import { useAttachmentDestination } from "./attachments/destination"
@@ -82,7 +83,30 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
   })
 
   const mode = () => prompt.mode.current()
-  const history = createComposerHistory()
+
+  const activeSession = adapter.kind === "active-session" ? adapter.session() : undefined
+
+  const historyScope: ComposerHistoryScope | undefined = activeSession
+    ? { kind: "session", server: serverSDK.scope, directory: activeSession.directory, session: activeSession.id }
+    : adapter.kind === "new-session"
+      ? { kind: "draft", draftID: adapter.draftID }
+      : undefined
+
+  // The scope a first prompt belongs to once a new Session exists. It is the same store its
+  // composer reads, so the entry is there even if that composer mounted before this record.
+  const sessionHistoryScope = (session: ComposerSession): ComposerHistoryScope => ({
+    kind: "session",
+    server: serverSDK.scope,
+    directory: session.directory,
+    session: session.id,
+  })
+
+  const historyAt = (scope: ComposerHistoryScope | undefined) => composerHistory(scope, platform)
+
+  // Only the composer that starts a Session needs the override: its own scope is the draft it is
+  // leaving, while an active Session's composer already reads its Session history.
+  const historyScopeFor = (session?: ComposerSession) =>
+    session && adapter.kind === "new-session" ? sessionHistoryScope(session) : historyScope
 
   const recent = createMemo(() => {
     const all = plugins.files.opened()
@@ -173,6 +197,21 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
         preview: item.preview,
       })),
     ])
+  }
+
+  // A prompt that started a new Session belongs to that Session's history, not to the draft the
+  // composer used while the Session was being created.
+  const addHistory = (value: Prompt, mode: "normal" | "shell", session?: ComposerSession) => {
+    historyAt(historyScopeFor(session)).add(value, mode, mode === "shell" ? [] : historyComments())
+  }
+
+  const removeHistory = (
+    value: Prompt,
+    mode: "normal" | "shell",
+    comments: PromptHistoryComment[],
+    session?: ComposerSession,
+  ) => {
+    historyAt(historyScopeFor(session)).remove(value, mode, mode === "shell" ? [] : comments)
   }
 
   const referenceDescription = (reference: ReferenceInfo) =>
@@ -299,8 +338,8 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
     commands: () => data.location.command.list({ directory: sdk().directory }),
     editor: () => editor,
     queueScroll: () => requestAnimationFrame(() => editor?.scrollIntoView({ block: "nearest" })),
-    addToHistory: (value, mode) => controller.addHistory(value, mode),
-    removeFromHistory: (value, mode, comments) => history.remove(value, mode, mode === "shell" ? [] : comments),
+    addToHistory: (value, mode, session) => addHistory(value, mode, session),
+    removeFromHistory: (value, mode, comments, session) => removeHistory(value, mode, comments, session),
     resetHistory: () => controller.resetHistory(),
     closePopover: () => controller.dispatch({ type: "popover.close" }),
     delivery: (alternate) => {
@@ -349,8 +388,11 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
   const controller = createComposerEditor({
     store: prompt.store,
     history: {
-      entries: (mode) => history.entries(mode).map((entry) => ({ prompt: entry.prompt, metadata: entry.comments })),
-      add: (value, mode) => history.add(value, mode, mode === "shell" ? [] : historyComments()),
+      entries: (mode) =>
+        historyAt(historyScope)
+          .entries(mode)
+          .map((entry) => ({ prompt: entry.prompt, metadata: entry.comments })),
+      add: (value, mode) => addHistory(value, mode),
       capture: historyComments,
       // SAFETY: `entries` stores each entry's comments as its metadata, and the editor restores only metadata it read there.
       restore: (metadata) => restoreHistoryComments(metadata as PromptHistoryComment[]),

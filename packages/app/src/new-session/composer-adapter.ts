@@ -97,6 +97,7 @@ export function createNewSessionComposerAdapter(props: {
 
   const adapter: NewSessionComposerAdapter = {
     kind: "new-session",
+    draftID: props.draftID,
     state,
     ready: prompt.ready,
     controls,
