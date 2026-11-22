@@ -3090,6 +3090,14 @@ export type SessionNotFoundError = {
 export const isSessionNotFoundError = (value: unknown): value is SessionNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "SessionNotFoundError"
 
+export type SessionBusyError = {
+  readonly _tag: "SessionBusyError"
+  readonly sessionID: string
+  readonly message: string
+}
+export const isSessionBusyError = (value: unknown): value is SessionBusyError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "SessionBusyError"
+
 export type MessageNotFoundError = {
   readonly _tag: "MessageNotFoundError"
   readonly sessionID: string
@@ -3122,14 +3130,6 @@ export type CommandExecutionError = {
 }
 export const isCommandExecutionError = (value: unknown): value is CommandExecutionError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "CommandExecutionError"
-
-export type SessionBusyError = {
-  readonly _tag: "SessionBusyError"
-  readonly sessionID: string
-  readonly message: string
-}
-export const isSessionBusyError = (value: unknown): value is SessionBusyError =>
-  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "SessionBusyError"
 
 export type UnknownError = {
   readonly _tag: "UnknownError"

@@ -10,6 +10,8 @@ import { Project } from "@opencode/core/project"
 import { AbsolutePath } from "@opencode/core/schema"
 import { Session } from "@opencode/core/session"
 import { SessionExecution } from "@opencode/core/session/execution"
+import { SessionInbox } from "@opencode/core/session/inbox"
+import { SessionMessage } from "@opencode/core/session/message"
 import { SessionModelTransport } from "@opencode/core/session/model-transport"
 import { SessionProjector } from "@opencode/core/session/projector"
 import { SessionStore } from "@opencode/core/session/store"
@@ -35,26 +37,44 @@ const transport = Layer.effect(
     })
   }),
 )
-const it = testEffect(
-  AppNodeBuilder.build(
-    LayerNode.group([
-      Database.node,
-      Bus.node,
-      SessionProjector.node,
-      SessionStore.node,
-      SessionEnvironment.node,
-      Session.node,
-      Instance.node,
-      LocationServiceMap.node,
-    ]),
-    [
-      Project.node.replace(globalProjectNode),
-      SessionExecution.node.replace(SessionExecution.noopLayer),
-      SessionModelTransport.node.replace(transport),
-      offlineModels,
-    ],
-  ),
+const harness = (execution: Layer.Layer<SessionExecution.Service>) =>
+  testEffect(
+    AppNodeBuilder.build(
+      LayerNode.group([
+        Database.node,
+        Bus.node,
+        SessionProjector.node,
+        SessionStore.node,
+        SessionEnvironment.node,
+        SessionInbox.node,
+        Session.node,
+        Instance.node,
+        LocationServiceMap.node,
+      ]),
+      [
+        Project.node.replace(globalProjectNode),
+        SessionExecution.node.replace(execution),
+        SessionModelTransport.node.replace(transport),
+        offlineModels,
+      ],
+    ),
+  )
+
+const it = harness(SessionExecution.noopLayer)
+
+const active = new Set<Session.ID>()
+const activeExecution = Layer.succeed(
+  SessionExecution.Service,
+  SessionExecution.Service.of({
+    active: Effect.sync(() => active),
+    isActive: (id) => Effect.sync(() => active.has(id)),
+    resume: () => Effect.void,
+    wake: () => Effect.void,
+    interrupt: () => Effect.succeed(false),
+    awaitIdle: () => Effect.void,
+  }),
 )
+const itActive = harness(activeExecution)
 
 describe("Session.remove", () => {
   it.effect("removes a session and its children", () =>
@@ -112,6 +132,70 @@ describe("Session.remove", () => {
         _tag: "Failure",
         failure: { _tag: "Session.NotFoundError", sessionID },
       })
+    }),
+  )
+
+  it.effect("refuses to remove a session with queued input", () =>
+    Effect.gen(function* () {
+      const temporary = yield* tmpdirScoped()
+      const session = yield* Session.Service
+      const created = yield* session.create({
+        location: Location.Ref.make({ directory: AbsolutePath.make(temporary.path) }),
+      })
+      const inbox = yield* SessionInbox.Service
+
+      yield* inbox.admit({
+        id: SessionMessage.ID.create(),
+        sessionID: created.id,
+        item: { type: "user", delivery: "queue", payload: { text: "queued" } },
+      })
+
+      expect(yield* Effect.result(session.remove(created.id))).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "Session.BusyError", sessionID: created.id },
+      })
+      expect((yield* session.list()).data.map((item) => item.id)).toEqual([created.id])
+    }),
+  )
+
+  it.effect("ignores parked synthetic input when removing", () =>
+    Effect.gen(function* () {
+      const temporary = yield* tmpdirScoped()
+      const session = yield* Session.Service
+      const created = yield* session.create({
+        location: Location.Ref.make({ directory: AbsolutePath.make(temporary.path) }),
+      })
+      const inbox = yield* SessionInbox.Service
+
+      yield* inbox.admit({
+        id: SessionMessage.ID.create(),
+        sessionID: created.id,
+        item: { type: "synthetic", delivery: "queue", payload: { text: "parked" } },
+      })
+
+      yield* session.remove(created.id)
+
+      expect((yield* session.list()).data).toEqual([])
+    }),
+  )
+
+  itActive.effect("refuses to remove a parent while a child is executing", () =>
+    Effect.gen(function* () {
+      const temporary = yield* tmpdirScoped()
+      const session = yield* Session.Service
+      const parent = yield* session.create({
+        location: Location.Ref.make({ directory: AbsolutePath.make(temporary.path) }),
+      })
+      const child = yield* session.create({ parentID: parent.id })
+
+      active.clear()
+      active.add(child.id)
+
+      expect(yield* Effect.result(session.remove(parent.id))).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "Session.BusyError", sessionID: parent.id },
+      })
+      expect((yield* session.list()).data.map((item) => item.id).sort()).toEqual([parent.id, child.id].sort())
     }),
   )
 })

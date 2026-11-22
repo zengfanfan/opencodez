@@ -142,7 +142,7 @@ export interface Interface {
     readonly variables?: SessionEnvironment.Variables
   }) => Effect.Effect<SessionEnvironment.Variables | undefined, NotFoundError>
   readonly view: (input: { sessionID: SessionSchema.ID; idle: number }) => Effect.Effect<void, NotFoundError>
-  readonly remove: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError>
+  readonly remove: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | BusyError>
   readonly messages: (
     input: SessionStore.MessagesInput,
   ) => Effect.Effect<SessionMessage.Info[], NotFoundError | MessageDecodeError>
@@ -403,6 +403,27 @@ const layer = Layer.effect(
       view: (input) => sessions.forSession(input.sessionID).view(input),
       remove: Effect.fn("Session.remove")(function* (sessionID) {
         yield* result.get(sessionID)
+        const sessions = yield* store.list()
+        const ids = new Set([sessionID])
+        let added = true
+        while (added) {
+          added = false
+          for (const session of sessions) {
+            if (session.parentID && ids.has(session.parentID) && !ids.has(session.id)) {
+              ids.add(session.id)
+              added = true
+            }
+          }
+        }
+        const active = yield* execution.active
+        if ([...ids].some((id) => active.has(id))) return yield* new BusyError({ sessionID })
+        const pending = yield* Effect.forEach(
+          [...ids],
+          (id) =>
+            SessionInbox.list(db, id).pipe(Effect.map((items) => items.some((item) => item.type !== "synthetic"))),
+          { concurrency: "unbounded" },
+        )
+        if (pending.some(Boolean)) return yield* new BusyError({ sessionID })
         yield* execution.interrupt(sessionID)
         yield* execution.awaitIdle(sessionID)
         yield* jobs.cancelSession(sessionID)
