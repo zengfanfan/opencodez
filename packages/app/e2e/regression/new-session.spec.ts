@@ -766,9 +766,11 @@ test("a variant picked on a worktree draft stays with the session it starts, eve
   const mock = await openWorktreeDraft(page, {
     ...pendingDraft,
     provider: provider({ id: "pending-model", name: "Pending Model", variants: { balanced: {}, high: {} } }),
+    agents: primaryAgents(),
   })
 
   const composer = page.locator('[data-component="composer"]')
+  const agent = composer.locator('[data-action="composer-agent"]')
   const variant = composer.getByRole("button", { name: "Choose model variant", exact: true })
 
   // The Default variant control shows only while the pointer is over the composer.
@@ -776,6 +778,8 @@ test("a variant picked on a worktree draft stays with the session it starts, eve
   await variant.click()
   await page.getByRole("menuitemradio", { name: "high", exact: true }).click()
   await expect(variant).toHaveText("high")
+  await agent.click()
+  await expect(agent).toHaveAccessibleName("Plan mode. Switch to Build")
   const pending = await submitPending(page, mock)
 
   // The session starts while another tab shows, so nothing shows the worktree when its selection is handed over.
@@ -787,6 +791,7 @@ test("a variant picked on a worktree draft stays with the session it starts, eve
     expect.objectContaining({
       id: pending.sessionID,
       location: { directory: workspace },
+      agent: "plan",
       model: expect.objectContaining({ id: "pending-model", variant: "high" }),
     }),
   ])
@@ -820,6 +825,18 @@ test("an agent picked on a draft survives switching to another session and back"
   await page.locator(`[data-titlebar-tab-link][href="${draftHref(draftID)}"]`).click()
   await expectPath(page, draftHref(draftID))
   await expect(agent).toHaveAccessibleName("Plan mode. Switch to Build")
+
+  await page.reload()
+  await expect(agent).toHaveAccessibleName("Plan mode. Switch to Build")
+
+  // Closing the draft flushes the selection store before its persisted key is removed.
+  const draftTab = page.locator(`[data-titlebar-tab-slot]:has(a[href="${draftHref(draftID)}"])`)
+  await draftTab.hover()
+  await draftTab.getByRole("button", { name: "Close tab", exact: true }).click()
+  await expect(page.locator(`[data-titlebar-tab-link][href="${draftHref(draftID)}"]`)).toHaveCount(0)
+  await expect
+    .poll(() => page.evaluate(() => Object.keys(localStorage).filter((key) => key.endsWith(":draft:model-selection"))))
+    .toEqual([])
 })
 
 test("a pending worktree session keeps Session as its mobile title until the generated title arrives", async ({
