@@ -199,6 +199,24 @@ function countText(text: string, end: number) {
   return count
 }
 
+/**
+ * The collapsed caret at a viewport point, used to drop text where the pointer released. Chromium and
+ * Safari expose `caretRangeFromPoint`; Firefox exposes `caretPositionFromPoint`.
+ */
+export function caretRangeAtPoint(x: number, y: number) {
+  const position = document.caretPositionFromPoint?.(x, y)
+
+  if (position) {
+    const range = document.createRange()
+    range.setStart(position.offsetNode, position.offset)
+    range.collapse(true)
+
+    return range
+  }
+
+  return document.caretRangeFromPoint?.(x, y) ?? undefined
+}
+
 export function setCursorPosition(parent: HTMLElement, position: number) {
   let remaining = position
   let node = parent.firstChild

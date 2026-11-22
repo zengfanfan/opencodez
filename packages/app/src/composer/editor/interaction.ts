@@ -27,7 +27,7 @@ import {
   type ComposerInteractionState,
   type ComposerSavedDraft,
 } from "../suggestions/machine"
-import { getCursorPosition, setCursorPosition } from "./dom"
+import { caretRangeAtPoint, getCursorPosition, setCursorPosition } from "./dom"
 import { clonePrompt, isAttachment, promptLength } from "../prompt-parts"
 import type { ComposerDelivery, ComposerQueue } from "../adapter"
 import { isCommentItem } from "../state"
@@ -631,6 +631,60 @@ export function createComposerEditor(input: {
     })
   }
 
+  // Shared by paste and drop. Escaped HTML inserts multiline text in one input event and keeps native
+  // selection and undo; the range fallback covers environments without execCommand.
+  const insertPlainText = (text: string, selectInserted = false) => {
+    const normalized = text.replace(/\r\n?/g, "\n")
+    const multiline = normalized.includes("\n")
+
+    const value = multiline
+      ? normalized.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+      : normalized
+
+    const selection = window.getSelection()
+
+    // A live clone at the insertion point marks where the new text starts, even when insertHTML splits nodes.
+    const start =
+      selectInserted && selection?.isCollapsed && selection.rangeCount ? selection.getRangeAt(0).cloneRange() : undefined
+
+    if (
+      Predicate.isFunction(document.execCommand) &&
+      document.execCommand(multiline ? "insertHTML" : "insertText", false, value)
+    ) {
+      if (start && selection?.rangeCount && start.compareBoundaryPoints(Range.START_TO_END, selection.getRangeAt(0)) <= 0) {
+        const end = selection.getRangeAt(0)
+        const inserted = document.createRange()
+        inserted.setStart(start.startContainer, start.startOffset)
+        inserted.setEnd(end.endContainer, end.endOffset)
+        selection.removeAllRanges()
+        selection.addRange(inserted)
+      }
+
+      return true
+    }
+
+    if (!editor || !selection?.rangeCount || !editor.contains(selection.anchorNode)) return false
+    const range = selection.getRangeAt(0)
+    range.deleteContents()
+    const node = document.createTextNode(normalized)
+    range.insertNode(node)
+    range.setStartAfter(node)
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    if (selectInserted) {
+      const inserted = document.createRange()
+      inserted.selectNodeContents(node)
+      selection.removeAllRanges()
+      selection.addRange(inserted)
+    }
+
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertFromPaste", data: normalized }))
+
+    return true
+  }
+
   return {
     state,
     mode,
@@ -776,33 +830,7 @@ export function createComposerEditor(input: {
 
       if (!text) return
       event.preventDefault()
-      // insertText emits input events per line, repeatedly parsing and saving the draft.
-      // Escaped HTML inserts multiline text once and preserves native selection and undo.
-      const normalized = text.replace(/\r\n?/g, "\n")
-      const multiline = normalized.includes("\n")
-
-      const value = multiline
-        ? normalized.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
-        : normalized
-
-      if (
-        Predicate.isFunction(document.execCommand) &&
-        document.execCommand(multiline ? "insertHTML" : "insertText", false, value)
-      )
-        return
-      const target = event.currentTarget
-      const selection = window.getSelection()
-
-      if (!(target instanceof HTMLElement) || !selection?.rangeCount || !target.contains(selection.anchorNode)) return
-      const range = selection.getRangeAt(0)
-      range.deleteContents()
-      const node = document.createTextNode(normalized)
-      range.insertNode(node)
-      range.setStartAfter(node)
-      range.collapse(true)
-      selection.removeAllRanges()
-      selection.addRange(range)
-      target.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertFromPaste", data: normalized }))
+      insertPlainText(text)
     },
     // The document's dragover owns the drag state. A dragleave fires on every move between the editor's own
     // nodes, so clearing the state here made the dropzone flicker.
@@ -816,15 +844,51 @@ export function createComposerEditor(input: {
       dispatch({ type: "drag.leave" })
     },
     onDrop(event: DragEvent) {
+      const transfer = event.dataTransfer
+      const text = transfer?.getData("text/plain") ?? ""
+      // Files win over text: only a drag with no files is inserted as text or a mention.
+      const textDrop = (transfer?.files.length ?? 0) === 0 && text.length > 0
+
       event.preventDefault()
       dispatch({ type: "drag.leave" })
 
-      if (attachments) {
-        event.stopPropagation()
+      if (!textDrop) {
+        if (attachments) {
+          event.stopPropagation()
+          void attachments.handleDrop(event)
+        }
+
+        return false
+      }
+
+      event.stopPropagation()
+
+      if (input.attachments?.isDialogActive() || !editor?.isContentEditable) return false
+
+      // Put the caret where the pointer released, so the drop lands there rather than at the old caret.
+      const range = caretRangeAtPoint(event.clientX, event.clientY)
+      editor.focus()
+      const selection = window.getSelection()
+
+      if (range && editor.contains(range.startContainer) && selection) {
+        selection.removeAllRanges()
+        selection.addRange(range)
+      } else {
+        setCursorPosition(editor, draft.state.cursor ?? promptLength(draft.state.prompt))
+      }
+
+      if (text.startsWith("file:")) {
+        if (!attachments) return false
+        // A workspace file row becomes a mention at the same point the drop caret showed.
+        draft.setCursor(getCursorPosition(editor) ?? draft.state.cursor ?? promptLength(draft.state.prompt))
         void attachments.handleDrop(event)
 
-        return
+        return false
       }
+
+      // shortcut: a selection dragged within the composer copies at the pointer instead of moving.
+      // Selecting the inserted text lets the next keystroke replace it, as a dropped selection normally does.
+      return insertPlainText(text, true)
     },
     attach,
     setFileInput(element: HTMLInputElement) {

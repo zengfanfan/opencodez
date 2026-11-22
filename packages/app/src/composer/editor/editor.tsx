@@ -17,6 +17,7 @@ import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { createMediaQuery } from "@solid-primitives/media"
+import { makeEventListener } from "@solid-primitives/event-listener"
 import { Key } from "@solid-primitives/keyed"
 import { FileIcon } from "@opencode/ui/file-icon"
 import { Icon } from "@opencode/ui/icon"
@@ -49,7 +50,7 @@ import type {
 } from "../types"
 import type { ComposerEditorModel, ComposerSelectControl } from "./interaction"
 import { isAttachment, promptLength } from "../prompt-parts"
-import { editorMatchesPrompt, getCursorPosition, isEditorDomBlank, isPromptInlineBlank } from "./dom"
+import { caretRangeAtPoint, editorMatchesPrompt, getCursorPosition, isEditorDomBlank, isPromptInlineBlank } from "./dom"
 import {
   INITIAL_EDITOR_SYNC_STATE,
   INPUT_PARSED,
@@ -84,6 +85,8 @@ const COMPOSER_SUGGESTION_SEARCH_HEIGHT = 28
 
 const COMPOSER_SUGGESTION_CONTEXT_RESERVE = 80
 
+type DropCaret = { left: number; top: number; height: number }
+
 export type ComposerEditorProps = {
   controller: ComposerEditorModel
   disabled?: boolean
@@ -115,6 +118,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
   let controlsViewport!: HTMLDivElement
   let controlsContent!: HTMLDivElement
   const [overflow, setOverflow] = createStore({ start: false, end: false })
+  const [dropCaret, setDropCaret] = createSignal<DropCaret>()
   // A history preview holds the composer at the height it had when the list opened.
   const historyHeight = createMemo(() => composerHistoryPreviewHeight(state))
   // Phones and tablets, whatever their width: a narrow desktop window keeps the desktop composer.
@@ -167,6 +171,10 @@ export function ComposerEditor(props: ComposerEditorProps) {
     const scrollObserver = new ResizeObserver(updateScroll)
 
     if (editor) scrollObserver.observe(editor)
+    makeEventListener(document, "dragend", () => setDropCaret())
+    makeEventListener(document, "keydown", (event) => {
+      if (event.key === "Escape") setDropCaret()
+    })
     onCleanup(() => {
       observer.disconnect()
       scrollObserver.disconnect()
@@ -178,6 +186,53 @@ export function ComposerEditor(props: ComposerEditorProps) {
     const cursor = editor && getCursorPosition(editor)
 
     if (cursor !== undefined) props.controller.onCursor(cursor)
+  }
+
+  // Programmatic multiline insertion does not reliably reveal the caret.
+  const revealCaret = () =>
+    requestAnimationFrame(() => {
+      const selection = window.getSelection()
+
+      if (!editor || !viewport || !selection?.rangeCount) return
+      const range = selection.getRangeAt(0)
+
+      if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) return
+      const end = range.cloneRange()
+      end.collapse(false)
+      const caret = end.getBoundingClientRect()
+
+      if (!caret.height) return
+      const bounds = viewport.getBoundingClientRect()
+
+      // Matches the viewport's 16px scroll-padding, which keeps the caret clear of the fades.
+      if (caret.bottom > bounds.bottom - 16) viewport.scrollTop += caret.bottom - bounds.bottom + 16
+
+      if (caret.top < bounds.top + 16) viewport.scrollTop += caret.top - bounds.top - 16
+    })
+
+  // The browser has no drop caret for a contenteditable that stays unfocused during the drag, so draw
+  // one where the text will land.
+  const updateDropCaret = (event: DragEvent) => {
+    const transfer = event.dataTransfer
+
+    if (!editor?.isContentEditable || !composer || !transfer?.types.includes("text/plain")) return setDropCaret()
+
+    if (transfer.types.includes("Files")) return setDropCaret()
+    const range = caretRangeAtPoint(event.clientX, event.clientY)
+
+    if (!range || !editor.contains(range.startContainer)) return setDropCaret()
+    const rect = range.getBoundingClientRect()
+
+    if (!rect.height) return setDropCaret()
+    const bounds = composer.getBoundingClientRect()
+    const left = rect.left - bounds.left
+    const top = rect.top - bounds.top
+
+    setDropCaret((previous) =>
+      previous?.left === left && previous.top === top && previous.height === rect.height
+        ? previous
+        : { left, top, height: rect.height },
+    )
   }
 
   const mode = createMemo(() => props.controller.mode())
@@ -264,9 +319,30 @@ export function ComposerEditor(props: ComposerEditorProps) {
           if (!props.disabled) props.controller.submit()
         }}
         onDragEnter={props.controller.onDragEnter}
-        onDragOver={props.controller.onDragOver}
-        onDrop={props.controller.onDrop}
+        onDragOver={(event) => {
+          props.controller.onDragOver(event)
+          updateDropCaret(event)
+        }}
+        onDragLeave={(event) => {
+          if (event.relatedTarget instanceof Node && composer?.contains(event.relatedTarget)) return
+          setDropCaret()
+        }}
+        onDrop={(event) => {
+          setDropCaret()
+
+          if (props.controller.onDrop(event)) revealCaret()
+        }}
       >
+        <Show when={dropCaret()}>
+          {(caret) => (
+            <div
+              data-slot="composer-drop-caret"
+              aria-hidden="true"
+              class="pointer-events-none absolute z-20 w-0.5 -translate-x-1/2 rounded-full bg-v2-text-text-base"
+              style={{ left: `${caret().left}px`, top: `${caret().top}px`, height: `${caret().height}px` }}
+            />
+          )}
+        </Show>
         <div
           ref={content}
           data-slot="composer-content"
@@ -408,23 +484,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
               onPointerUp={updateCursor}
               onPaste={(event) => {
                 props.controller.onPaste(event)
-                // Programmatic multiline insertion does not reliably reveal the caret.
-                requestAnimationFrame(() => {
-                  const selection = window.getSelection()
-
-                  if (!editor || !viewport || !selection?.isCollapsed || !selection.rangeCount) return
-
-                  if (!editor.contains(selection.anchorNode)) return
-                  const caret = selection.getRangeAt(0).getBoundingClientRect()
-
-                  if (!caret.height) return
-                  const bounds = viewport.getBoundingClientRect()
-
-                  // Matches the viewport's 16px scroll-padding, which keeps the caret clear of the fades.
-                  if (caret.bottom > bounds.bottom - 16) viewport.scrollTop += caret.bottom - bounds.bottom + 16
-
-                  if (caret.top < bounds.top + 16) viewport.scrollTop += caret.top - bounds.top - 16
-                })
+                revealCaret()
               }}
               onFocus={() => props.controller.dispatch({ type: "focus.editor" })}
             />

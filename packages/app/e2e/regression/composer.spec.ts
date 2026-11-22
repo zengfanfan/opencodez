@@ -876,8 +876,13 @@ async function expectCaretVisible(input: Locator) {
       input.evaluate((element) => {
         const selection = window.getSelection()
 
-        if (!selection?.isCollapsed || !selection.rangeCount || !element.contains(selection.anchorNode)) return false
-        const caret = selection.getRangeAt(0).getBoundingClientRect()
+        if (!selection?.rangeCount) return false
+        const range = selection.getRangeAt(0)
+
+        if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return false
+        const end = range.cloneRange()
+        end.collapse(false)
+        const caret = end.getBoundingClientRect()
         const viewport = (element.closest("[data-scrollable]") ?? element).getBoundingClientRect()
 
         return caret.height > 0 && caret.top >= viewport.top - 1 && caret.bottom <= viewport.bottom + 1
@@ -1258,6 +1263,168 @@ test("keeps one dropzone while a file drag crosses the composer, and none for a 
   }, files)
   await expect.poll(() => shown?.evaluate((element) => element.isConnected)).toBe(true)
   await expect(dropzone).toHaveAttribute("data-visible", "true")
+})
+
+test("inserts text dropped in the composer at the caret", async ({ page }) => {
+  const editor = await draft(page)
+
+  const drop = async (text: string, html?: string) => {
+    const transfer = await page.evaluateHandle(
+      ({ text, html }) => {
+        const value = new DataTransfer()
+        value.setData("text/plain", text)
+
+        if (html) value.setData("text/html", html)
+
+        return value
+      },
+      { text, html },
+    )
+
+    await editor.dispatchEvent("drop", { dataTransfer: transfer })
+    await transfer.dispose()
+  }
+
+  // A drag that starts in the timeline leaves the composer unfocused.
+  await editor.evaluate((element) => element.blur())
+  await drop("single line")
+  await expect.poll(() => editor.innerText()).toBe("single line")
+  await expect(editor).toBeFocused()
+  await page.keyboard.press("ControlOrMeta+Z")
+  await expect(editor).toBeEmpty()
+
+  await page.keyboard.type("before after")
+  await editor.press("Home")
+
+  for (let index = 0; index < "before ".length; index++) await editor.press("ArrowRight")
+  await drop("dropped\r\nwords", "<b>dropped</b><img src=x>")
+
+  await expect.poll(() => editor.innerText()).toBe("before dropped\nwordsafter")
+  await expect(editor.locator("b, img")).toHaveCount(0)
+  await expect(editor).toBeFocused()
+  await expect.poll(() => editor.evaluate(() => window.getSelection()?.toString())).toBe("dropped\nwords")
+  await expectCaretVisible(editor)
+
+  // Collapse the selection to its end, then each edit stays one native undo step.
+  await editor.press("ArrowRight")
+  await page.keyboard.type("!")
+  await expect.poll(() => editor.innerText()).toBe("before dropped\nwords!after")
+  await page.keyboard.press("ControlOrMeta+Z")
+  await expect.poll(() => editor.innerText()).toBe("before dropped\nwordsafter")
+  await page.keyboard.press("ControlOrMeta+Z")
+  await expect.poll(() => editor.innerText()).toBe("before after")
+})
+
+test("shows a drop caret at the pointer and drops text there", async ({ page }) => {
+  const editor = await draft(page)
+  await page.keyboard.type("before after")
+
+  const point = await editor.evaluate((element) => {
+    const start = element.firstChild
+
+    if (!(start instanceof Text)) throw new Error("expected the editor text")
+    const range = document.createRange()
+    range.setStart(start, "before ".length)
+    range.collapse(true)
+    const rect = range.getBoundingClientRect()
+
+    return { x: rect.left, y: rect.top + rect.height / 2 }
+  })
+
+  const transfer = await page.evaluateHandle(() => {
+    const value = new DataTransfer()
+    value.setData("text/plain", "dropped")
+
+    return value
+  })
+
+  await editor.dispatchEvent("dragover", { dataTransfer: transfer, clientX: point.x, clientY: point.y })
+  const caret = page.locator('[data-slot="composer-drop-caret"]')
+  await expect(caret).toBeVisible()
+  const bounds = await caret.boundingBox()
+
+  if (!bounds) throw new Error("expected the drop caret")
+  expect(bounds.x + bounds.width / 2).toBeCloseTo(point.x, 0)
+  expect(bounds.y + bounds.height / 2).toBeCloseTo(point.y, 0)
+
+  await editor.dispatchEvent("drop", { dataTransfer: transfer, clientX: point.x, clientY: point.y })
+  await expect.poll(() => editor.innerText()).toBe("before droppedafter")
+  await expect.poll(() => editor.evaluate(() => window.getSelection()?.toString())).toBe("dropped")
+  await expect(caret).toHaveCount(0)
+})
+
+test("does not insert text dropped outside the composer", async ({ page }) => {
+  const editor = await draft(page)
+  await page.keyboard.type("keep me")
+
+  const transfer = await page.evaluateHandle(() => {
+    const value = new DataTransfer()
+    value.setData("text/plain", "outside text")
+
+    return value
+  })
+
+  await page.locator('[data-component="new-session"]').dispatchEvent("drop", { dataTransfer: transfer })
+  await expect.poll(() => editor.innerText()).toBe("keep me")
+})
+
+test("reveals the caret after a long dropped text", async ({ page }) => {
+  const input = await draft(page)
+  const suffix = "\nExisting trailing content".repeat(100)
+  await input.fill("Before " + suffix)
+  await input.press("ControlOrMeta+Home")
+  await input.press("ArrowRight")
+  const text = "Dropped line /tmp/example.ts 123 مرحبا\n".repeat(100) + "End of drop"
+
+  const transfer = await page.evaluateHandle((text) => {
+    const value = new DataTransfer()
+    value.setData("text/plain", text)
+
+    return value
+  }, text)
+
+  await input.dispatchEvent("drop", { dataTransfer: transfer })
+  await expect.poll(() => input.innerText()).toBe("B" + text + "efore " + suffix)
+  await expectCaretVisible(input)
+  await input.press("ArrowRight")
+  await page.keyboard.type("!")
+  await expect.poll(() => input.innerText()).toBe("B" + text + "!efore " + suffix)
+  await expectCaretVisible(input)
+})
+
+test("keeps files and workspace paths ahead of dropped text", async ({ page }) => {
+  const { editor } = await openDraft(page, {
+    name: "ComposerDraft",
+    provider: NO_PROVIDER,
+    onFileWrite: () => undefined,
+  })
+
+  // A file drag often also carries text/plain; it must attach the file and insert no text.
+  const file = await page.evaluateHandle(() => {
+    const value = new DataTransfer()
+    value.setData("text/plain", "ignored as text")
+    value.items.add(new File(["Dropped fixture"], "dropped-on-editor.txt", { type: "text/plain" }))
+
+    return value
+  })
+
+  await editor.dispatchEvent("drop", { dataTransfer: file })
+  await expect(page.locator('[data-component="composer-attachments"]')).toContainText("dropped-on-editor.txt")
+  await expect(editor).toBeEmpty()
+
+  // A workspace file row arrives as a file: URL and must stay a mention.
+  const workspace = await page.evaluateHandle(() => {
+    const value = new DataTransfer()
+    value.setData("text/plain", "file:C:/OpenCode/ComposerDraft/main.ts")
+    value.setData("text/uri-list", "file:///C:/OpenCode/ComposerDraft/main.ts")
+
+    return value
+  })
+
+  await editor.dispatchEvent("drop", { dataTransfer: workspace })
+  await expect(editor.locator('[data-mention="file"]')).toHaveText("@C:/OpenCode/ComposerDraft/main.ts")
+  // The mention insertion leaves the trailing space typing needs after a mention.
+  await expect.poll(() => editor.innerText()).toBe("@C:/OpenCode/ComposerDraft/main.ts ")
 })
 
 test("keeps a narrow session composer contained when invoking a built-in", async ({ page }) => {

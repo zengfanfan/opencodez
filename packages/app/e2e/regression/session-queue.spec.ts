@@ -1678,3 +1678,33 @@ test("a queued prompt hides Delete in the session header", async ({ page }) => {
   await expect(page.getByRole("menuitem", { name: "Rename", exact: true })).toBeVisible()
   expect(await page.getByRole("menuitem", { name: "Delete…", exact: true }).count()).toBe(0)
 })
+
+test("text dropped into the composer is ignored while a queue undo is in flight", async ({ page }) => {
+  const mock = createQueueMock(["Keep queued"])
+  const view = await openQueue(page, mock, "queue")
+
+  const cancellation = await holdRoute(page, new RegExp(`/api/session/${sessionID}/inbox/[^/?]+(\\?|$)`), {
+    method: "DELETE",
+  })
+
+  const undo = view.rows.getByRole("button", { name: "Undo", exact: true })
+  await undo.hover()
+  await undo.click()
+  // The undo waits on the held DELETE, so the composer is read-only while it owns the draft.
+  await expect(view.input).toHaveAttribute("contenteditable", "false")
+  const before = await view.input.innerText()
+
+  const transfer = await page.evaluateHandle(() => {
+    const value = new DataTransfer()
+    value.setData("text/plain", "dropped while the queue undoes")
+
+    return value
+  })
+
+  await view.input.dispatchEvent("drop", { dataTransfer: transfer })
+  await expect.poll(() => view.input.innerText()).toBe(before)
+  await expect(view.input).toHaveAttribute("contenteditable", "false")
+
+  cancellation.release()
+  await expect(view.rows).toHaveCount(0)
+})
