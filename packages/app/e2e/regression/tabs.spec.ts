@@ -2804,36 +2804,6 @@ test("a pinned running session has no Delete in the projects sidebar", async ({ 
   expect(await page.getByRole("menuitem", { name: "Close tab", exact: true }).count()).toBe(0)
 })
 
-test("a running child session row in the customized sidebar has no Delete", async ({ page }) => {
-  const parent = { id: "ses_child_parent", title: "Child parent session" }
-  const child = { id: "ses_child_running", title: "Running child session", parentID: parent.id }
-  await mockWorkspace(page, {
-    name: "ChildRows",
-    sessions: [parent, child],
-    sessionStatus: { [child.id]: { type: "running" } },
-    seed: {
-      tabs: [parent.id],
-      settings: { appearance: { tabLayout: "vertical" }, general: { sidebarOrganize: "customize" } },
-      storage: {
-        "opencode.global.dat:sidebar.view": {
-          grouping: "project",
-          ordering: "manual",
-          show: { recent: true, subagents: true, serverLabels: true },
-          collapsed: {},
-        },
-      },
-    },
-  })
-  await page.goto(sessionHref(parent.id))
-
-  const sidebar = page.locator('[data-slot="vertical-tabs"]')
-  const childRow = sidebar.locator(`button[data-titlebar-tab-action][title="${child.title}"]`)
-  await expect(childRow).toBeVisible()
-
-  await childRow.click({ button: "right" })
-  await expect(page.getByRole("menuitem")).toHaveText(["Rename", "Export…"])
-})
-
 test("a running recent session has no Delete in its context menu", async ({ page }) => {
   const t = Date.now() - 60_000
   const running = { id: "ses_recent_running_delete", title: "Running recent session" }

@@ -1,7 +1,7 @@
 import { createMemo, type Accessor } from "solid-js"
 import type { SessionInfo } from "@opencode/client/promise"
 import { useGlobal, useServerCtx, type ServerCtx } from "@/runtime/server/runtime"
-import { sessionPermissionRequest, sessionFormRequest, sessionTreeIDs } from "@/session/requests/session-request-tree"
+import { sessionPermissionRequest, sessionFormRequest } from "@/session/requests/session-request-tree"
 import { needsUser } from "@/session/requests/auto-approve-machine"
 import { ServerConnection } from "@/runtime/server/registry"
 import { projectSettingsKey, useSettings } from "@/settings/model"
@@ -96,17 +96,14 @@ function attention(ctx: ServerCtx, sessionId: string, root: boolean, autoApprove
   return !!requests.permission || !!requests.form
 }
 
-// A session runs while it or any loaded descendant is busy; `root` also covers the family it heads.
-// Check the session itself first: it may be active before its info reaches the store, and a child
-// queried with `root` must not depend on its own root ID appearing in the family scan.
+// A root runs while any session in its family is busy.
 function running(data: ServerData, sessionId: string, root: boolean) {
-  if (sessionBusy(data, sessionId)) return true
+  if (root)
+    return data.session
+      .list()
+      .some((session) => data.session.root(session.id) === sessionId && sessionBusy(data, session.id))
 
-  if (!root) return false
-
-  const ids = new Set(sessionTreeIDs(data.session.list(), sessionId))
-
-  return data.session.list().some((session) => ids.has(session.id) && sessionBusy(data, session.id))
+  return sessionBusy(data, sessionId)
 }
 
 export type SessionRequests = ReturnType<typeof sessionRequests>
