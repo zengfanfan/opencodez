@@ -289,7 +289,7 @@ function MessageTimelineView(
             id: "session.delete",
             category: language.t("command.category.session"),
             title: language.t("command.session.delete"),
-            disabled: !sessionID() || !!parentID(),
+            disabled: !sessionID() || !!parentID() || !props.action.canDelete(),
             onSelect: () => {
               const id = sessionID()
 
@@ -725,10 +725,12 @@ function MessageTimelineView(
                         <Menu.Item disabled={props.action.exporting(id)} onSelect={() => props.action.export(id)}>
                           {language.t("common.export")}…
                         </Menu.Item>
-                        <Menu.Separator />
-                        <Menu.Item onSelect={() => props.action.showDelete(id)}>
-                          {language.t("common.delete")}…
-                        </Menu.Item>
+                        <Show when={props.action.canDelete()}>
+                          <Menu.Separator />
+                          <Menu.Item onSelect={() => props.action.showDelete(id)}>
+                            {language.t("common.delete")}…
+                          </Menu.Item>
+                        </Show>
                       </Menu.Content>
                     </Menu.Portal>
                   </Menu>

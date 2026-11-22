@@ -6,7 +6,8 @@ import {
   openPaletteWorkspace,
   paletteSession,
 } from "../utils/command-palette"
-import { REMOTE_SERVER, SERVER } from "../utils/app"
+import { REMOTE_SERVER, SERVER, sessionHref } from "../utils/app"
+import { APP_READY_TIMEOUT } from "../utils/waits"
 import { mockRemoteServer, mockWorkspace } from "../utils/workspace"
 
 test.use({ serviceWorkers: "block", permissions: ["clipboard-read", "clipboard-write"] })
@@ -787,4 +788,25 @@ test("titlebar session search shrinks with results while its field stays anchore
   await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
   await expect.poll(async () => (await geometry()).inputTop).toBeCloseTo(initial.inputTop, 0)
   await expect(input).toBeFocused()
+})
+
+test("a running session hides close and delete commands", async ({ page }) => {
+  const running = { id: "ses_palette_delete_running", title: "Running palette session" }
+  await mockWorkspace(page, {
+    name: "PaletteDeleteRunning",
+    sessions: [running],
+    sessionStatus: { [running.id]: { type: "running" } },
+  })
+  await page.goto(sessionHref(running.id))
+  await expect(page.locator('[data-component="composer-editor"]')).toBeEditable({ timeout: APP_READY_TIMEOUT })
+
+  await page.keyboard.press("ControlOrMeta+Shift+P")
+  const dialog = page.getByRole("dialog")
+  const input = dialog.getByRole("combobox")
+  await input.fill("rename session")
+  await expect(dialog.getByRole("option", { name: /^Rename session/ })).toBeVisible()
+  await input.fill("delete session")
+  await expect(dialog.getByRole("option", { name: /^Delete session/ })).toHaveCount(0)
+  await input.fill("close session tab")
+  await expect(dialog.getByRole("option", { name: /^Close session tab/ })).toHaveCount(0)
 })

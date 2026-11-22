@@ -647,11 +647,18 @@ export function groupSessions(
 
 export type HomeSessionsController = ReturnType<typeof createHomeSessionsController>
 
+export type HomeSessionStatusState = {
+  unread: Accessor<boolean>
+  loading: Accessor<boolean>
+  busy: Accessor<boolean>
+  open: Accessor<boolean>
+}
+
 export function HomeSessionStatusController(props: {
   server: ServerConnection.Key
   record: HomeSessionRecord
   isOpenTab: (record: HomeSessionRecord) => boolean
-  render: (state: { unread: Accessor<boolean>; loading: Accessor<boolean>; open: Accessor<boolean> }) => JSX.Element
+  render: (state: HomeSessionStatusState) => JSX.Element
 }) {
   const avatar = useSessionTabAvatarState(
     () => props.server,
@@ -664,6 +671,7 @@ export function HomeSessionStatusController(props: {
   return props.render({
     unread: avatar.unread,
     loading: avatar.loading,
+    busy: avatar.busy,
     open: () => props.isOpenTab(props.record),
   })
 }

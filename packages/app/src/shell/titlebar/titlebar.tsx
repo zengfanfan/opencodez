@@ -12,7 +12,7 @@ import { useLayout } from "@/shell/state/layout"
 import { usePlatform } from "@/runtime/platform/platform"
 import { useCommand } from "@/shell/commands/command"
 import { useLanguage } from "@/runtime/i18n/language"
-import { useSettings } from "@/settings/model"
+import { useSettings, projectSettingsKey } from "@/settings/model"
 import { useProjectNavigation } from "@/shell/project-navigation"
 import { useProjectBrowser } from "@/home/projects/browse"
 import { useProjectStart } from "@/home/projects/start"
@@ -29,13 +29,13 @@ import { createMediaQuery } from "@solid-primitives/media"
 import { readSessionTabsRemovedDetail, SESSION_TABS_REMOVED_EVENT } from "@/shell/titlebar/session-events"
 import { useGlobal } from "@/runtime/server/runtime"
 import { ServerConnection } from "@/runtime/server/registry"
-import { tabKey, useTabs } from "@/shell/tabs/tabs"
+import { tabKey, useTabs, type Tab } from "@/shell/tabs/tabs"
 import type { ComposerState } from "@/composer/persistence"
 import "./titlebar.css"
 import { MobileDrawer, MobileDrawerContent, MobileDrawerLabel, MobileDrawerTrigger } from "@/shell/mobile-drawer"
 import { sessionTabTitle } from "./tab-title"
 import { SessionTabAvatarView } from "@/shell/layout/session-tab-avatar"
-import { useSessionTabAvatarState } from "@/shell/layout/project-avatar-state"
+import { useSessionTabAvatarState, sessionStatus } from "@/shell/layout/project-avatar-state"
 import { ActivityRing } from "@opencode/ui/activity-ring"
 import { RecentlyClosedTabsMenu } from "./recently-closed-tabs-menu"
 import { useSettingsCommand, useSettingsDialog } from "@/settings/command"
@@ -244,6 +244,22 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
             const tabs = useTabs()
             const tabsStore = tabs.store
 
+            // A running, queued, or waiting session tab cannot be closed; the delete menu uses the same state.
+            const tabBusy = (tab: Tab | undefined) => {
+              if (!tab || tab.type !== "session") return false
+              const ctx = global.serverCtx(tab.server)
+
+              if (!ctx) return false
+
+              const autoApprove = settings.permissions.autoApproves(
+                projectSettingsKey(ctx.sdk.scope, ctx.data.session.get(tab.sessionId)?.projectID),
+              )
+
+              const status = sessionStatus(ctx, tab.sessionId, { root: true, autoApprove })
+
+              return status === "running" || status === "input"
+            }
+
             createEffect(() => {
               if (
                 settings.appearance.tabLayout() === "vertical" &&
@@ -372,11 +388,14 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                   el?.scrollIntoView({ behavior: "instant", block: "nearest" })
                 }}
                 onClose={(tab) => {
+                  if (tabBusy(tab)) return
                   const index = tabsStore.findIndex((item) => tabKey(item) === tabKey(tab))
 
                   if (index !== -1) tabsStoreActions.closeTab(index)
                 }}
-                onCloseTabs={(items, keep) => tabsStoreActions.closeTabs(items.map(tabKey), keep)}
+                onCloseTabs={(items, keep) =>
+                  tabsStoreActions.closeTabs(items.filter((tab) => !tabBusy(tab)).map(tabKey), keep)
+                }
                 onReorder={(keys) => tabsStoreActions.reorder(keys)}
               />
             )
@@ -511,6 +530,8 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
               const current = currentTab()
 
               const closeCurrent = () => {
+                if (tabBusy(current)) return
+
                 if (current === tabs.preview()) {
                   tabs.closePreview()
 
@@ -534,6 +555,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                   title: language.t("command.tab.close"),
                   keybind: "mod+w",
                   hidden: true,
+                  // Keep this command enabled so Mod+W still claims the key; closeCurrent refuses a busy tab.
                   onSelect: closeCurrent,
                 },
                 current && {
@@ -541,6 +563,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                   category: "tab",
                   title: language.t("command.tab.closeSession"),
                   keybind: "mod+alt+w",
+                  disabled: tabBusy(current),
                   onSelect: closeCurrent,
                 },
                 {
@@ -720,11 +743,14 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                 closeMobileTabs()
                               }}
                               onClose={(tab) => {
+                                if (tabBusy(tab)) return
                                 const index = tabsStore.findIndex((item) => tabKey(item) === tabKey(tab))
 
                                 if (index !== -1) tabsStoreActions.closeTab(index)
                               }}
-                              onCloseTabs={(items, keep) => tabsStoreActions.closeTabs(items.map(tabKey), keep)}
+                              onCloseTabs={(items, keep) =>
+                                tabsStoreActions.closeTabs(items.filter((tab) => !tabBusy(tab)).map(tabKey), keep)
+                              }
                               onReorder={(keys) => tabsStoreActions.reorder(keys)}
                             />
                           </div>
@@ -796,11 +822,14 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                             el?.scrollIntoView({ behavior: "instant" })
                           }}
                           onClose={(tab) => {
+                            if (tabBusy(tab)) return
                             const index = tabsStore.findIndex((item) => tabKey(item) === tabKey(tab))
 
                             if (index !== -1) tabsStoreActions.closeTab(index)
                           }}
-                          onCloseTabs={(items, keep) => tabsStoreActions.closeTabs(items.map(tabKey), keep)}
+                          onCloseTabs={(items, keep) =>
+                            tabsStoreActions.closeTabs(items.filter((tab) => !tabBusy(tab)).map(tabKey), keep)
+                          }
                           onReorder={(keys) => tabsStoreActions.reorder(keys)}
                         />
                         <RecentlyClosedTabsMenu

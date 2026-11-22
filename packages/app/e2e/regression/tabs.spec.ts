@@ -2449,6 +2449,11 @@ test("opening a working session expands its shelf and still allows manual collap
 
   const row = shelf.locator('[data-slot="sidebar-inbox-item"]')
 
+  await row.click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Rename", exact: true })).toBeVisible()
+  expect(await page.getByRole("menuitem", { name: "Delete…", exact: true }).count()).toBe(0)
+  await page.keyboard.press("Escape")
+
   await expect(toggle).toHaveAttribute("aria-expanded", "true")
   await expect(row).toHaveAttribute("data-state", "active")
   await expect(toggle.locator('[data-component="text-shimmer"]')).toHaveCount(0)
@@ -2754,3 +2759,129 @@ async function mockGaveUpPermission(page: Page, tabLayout: "horizontal" | "inbox
     attempts: () => attempts.count,
   }
 }
+
+test("a running tab has no Delete in its context menu", async ({ page }) => {
+  const running = { id: "ses_tab_running_delete", title: "Running tab session" }
+  await mockWorkspace(page, {
+    name: "RunningTab",
+    sessions: [running],
+    sessionStatus: { [running.id]: { type: "running" } },
+  })
+  await page.goto(sessionHref(running.id))
+
+  const slot = page.locator(`[data-titlebar-tab-slot]:has(a[href="${sessionHref(running.id)}"])`)
+  const title = slot.locator('[data-slot="tab-title"]')
+
+  await expect(title).toHaveText(running.title)
+  await expect(slot.locator('[data-slot="tab-close"] button')).toHaveCount(0)
+
+  await title.click({ button: "right" })
+  expect(await page.getByRole("menuitem", { name: "Delete…", exact: true }).count()).toBe(0)
+  await expect(page.getByRole("menuitem", { name: "Close tab", exact: true })).toBeDisabled()
+})
+
+test("a pinned running session has no Delete in the projects sidebar", async ({ page }) => {
+  const running = { id: "ses_pinned_running", title: "Pinned running session" }
+  await mockWorkspace(page, {
+    name: "PinnedBusy",
+    sessions: [running],
+    sessionStatus: { [running.id]: { type: "running" } },
+    seed: {
+      tabs: [running.id],
+      settings: { appearance: { tabLayout: "vertical" }, general: { sidebarOrganize: "projects" } },
+      storage: { "opencode.global.dat:sidebar.recent": { pins: [`${SERVER}\u0000${running.id}`] } },
+    },
+  })
+  await page.goto("/")
+
+  const pinned = page.getByRole("group", { name: "Pinned", exact: true })
+  const row = pinned.locator('a[data-titlebar-tab-link="true"]').filter({ hasText: running.title })
+  await expect(row).toBeVisible()
+
+  await row.click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Rename", exact: true })).toBeVisible()
+  expect(await page.getByRole("menuitem", { name: "Delete…", exact: true }).count()).toBe(0)
+  expect(await page.getByRole("menuitem", { name: "Close tab", exact: true }).count()).toBe(0)
+})
+
+test("a running child session row in the customized sidebar has no Delete", async ({ page }) => {
+  const parent = { id: "ses_child_parent", title: "Child parent session" }
+  const child = { id: "ses_child_running", title: "Running child session", parentID: parent.id }
+  await mockWorkspace(page, {
+    name: "ChildRows",
+    sessions: [parent, child],
+    sessionStatus: { [child.id]: { type: "running" } },
+    seed: {
+      tabs: [parent.id],
+      settings: { appearance: { tabLayout: "vertical" }, general: { sidebarOrganize: "customize" } },
+      storage: {
+        "opencode.global.dat:sidebar.view": {
+          grouping: "project",
+          ordering: "manual",
+          show: { recent: true, subagents: true, serverLabels: true },
+          collapsed: {},
+        },
+      },
+    },
+  })
+  await page.goto(sessionHref(parent.id))
+
+  const sidebar = page.locator('[data-slot="vertical-tabs"]')
+  const childRow = sidebar.locator(`button[data-titlebar-tab-action][title="${child.title}"]`)
+  await expect(childRow).toBeVisible()
+
+  await childRow.click({ button: "right" })
+  await expect(page.getByRole("menuitem")).toHaveText(["Rename", "Export…"])
+})
+
+test("a running recent session has no Delete in its context menu", async ({ page }) => {
+  const t = Date.now() - 60_000
+  const running = { id: "ses_recent_running_delete", title: "Running recent session" }
+  const active = { id: "ses_recent_active", title: "Active recent session" }
+  await mockWorkspace(page, {
+    name: "RecentDeleteBusy",
+    sessions: [
+      { ...running, time: { created: t, updated: t, idle: t } },
+      { ...active, time: { created: t, updated: t } },
+    ],
+    sessionStatus: { [running.id]: { type: "running" } },
+    seed: {
+      tabs: [],
+      settings: { appearance: { tabLayout: "vertical" }, general: { sidebarOrganize: "recent" } },
+    },
+  })
+  await page.goto(
+    `/e2e/utils/windows-menu.html?${new URLSearchParams({ server: SERVER, path: sessionHref(active.id, "sidecar") })}`,
+  )
+  await expectSessionTitle(page, active.title)
+
+  const sidebar = page.locator('[data-slot="sidebar-recent"]')
+  const row = sidebar.locator(`[data-titlebar-tab-slot]:has(a[href="${sessionHref(running.id, "sidecar")}"])`)
+  await expect(row).toBeVisible()
+
+  await row.locator("[data-titlebar-tab-link]").click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Rename", exact: true })).toBeVisible()
+  expect(await page.getByRole("menuitem", { name: "Delete…", exact: true }).count()).toBe(0)
+})
+
+test("closing other tabs keeps a running session tab", async ({ page }) => {
+  const running = { id: "ses_tab_close_running", title: "Running close session" }
+  const idle = { id: "ses_tab_close_idle", title: "Idle close session" }
+  await mockWorkspace(page, {
+    name: "CloseBusy",
+    sessions: [running, idle],
+    sessionStatus: { [running.id]: { type: "running" } },
+  })
+  await page.goto(sessionHref(running.id))
+
+  const runningTab = page.locator(`[data-titlebar-tab-slot]:has(a[href="${sessionHref(running.id)}"])`)
+  const idleTab = page.locator(`[data-titlebar-tab-slot]:has(a[href="${sessionHref(idle.id)}"])`)
+  await expect(runningTab).toBeVisible()
+  await expect(idleTab).toBeVisible()
+
+  await idleTab.locator('[data-slot="tab-title"]').click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Close other tabs", exact: true }).click()
+
+  await expect(runningTab).toBeVisible()
+  await expect(idleTab).toBeVisible()
+})

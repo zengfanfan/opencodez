@@ -33,7 +33,7 @@ import { sessionLabel, sessionTitle } from "@/session/title"
 import { createSessionExporter } from "@/session/commands/export-session"
 import { SessionReadMenuItem } from "@/session/session-read-menu-item"
 import { RenameDialog } from "./project-session-row"
-import { createSessionInbox, inboxArchived, type InboxEntry, type InboxStatus } from "./inbox-model"
+import { createSessionInbox, inboxArchived, inboxBusy, type InboxEntry, type InboxStatus } from "./inbox-model"
 import { compareWorking, workingSince } from "./inbox-working"
 
 const RECENT_LIMIT = 10
@@ -709,8 +709,10 @@ export function InboxSessionCard(props: {
           >
             <Menu.Item onSelect={props.onUnarchive}>{language.t("sidebar.inbox.unarchive")}</Menu.Item>
           </Show>
-          <Menu.Separator />
-          <Menu.Item onSelect={props.onDelete}>{language.t("common.delete")}…</Menu.Item>
+          <Show when={!inboxBusy(props.status)}>
+            <Menu.Separator />
+            <Menu.Item onSelect={props.onDelete}>{language.t("common.delete")}…</Menu.Item>
+          </Show>
         </Menu.Context.Content>
       </Menu.Context.Portal>
     </Menu.Context>

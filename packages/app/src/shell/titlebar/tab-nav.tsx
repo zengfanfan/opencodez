@@ -39,12 +39,14 @@ export type TabCloseActions = {
   onCloseAfter?: () => void
 }
 
-function TabCloseMenuItems(props: TabCloseActions & { orientation?: "horizontal" | "vertical" }) {
+function TabCloseMenuItems(props: TabCloseActions & { orientation?: "horizontal" | "vertical"; disabled?: boolean }) {
   const language = useLanguage()
 
   return (
     <>
-      <Menu.Item onSelect={props.onClose}>{language.t("common.closeTab")}</Menu.Item>
+      <Menu.Item disabled={props.disabled} onSelect={props.onClose}>
+        {language.t("common.closeTab")}
+      </Menu.Item>
       <Menu.Item disabled={!props.onCloseOthers} onSelect={props.onCloseOthers}>
         {language.t("common.closeOtherTabs")}
       </Menu.Item>
@@ -586,7 +588,7 @@ export function TabNavItem(
           <span data-mark="failed" data-slot="tab-status-dot" />
           <MutedIcon data-mark="muted" />
         </span>
-        <Show when={actions}>
+        <Show when={actions && !props.attention && !props.loading}>
           <IconButton
             size="small"
             variant="ghost-muted"
@@ -671,14 +673,17 @@ export function TabNavItem(
               <Menu.Separator />
               <TabCloseMenuItems
                 orientation={props.orientation}
+                disabled={props.attention || props.loading}
                 onClose={props.onClose}
                 onCloseOthers={props.onCloseOthers}
                 onCloseAfter={props.onCloseAfter}
               />
-              <Menu.Separator />
-              <Menu.Item disabled={!props.session} onSelect={props.onDelete}>
-                {language.t("common.delete")}…
-              </Menu.Item>
+              <Show when={!props.attention && !props.loading}>
+                <Menu.Separator />
+                <Menu.Item disabled={!props.session} onSelect={props.onDelete}>
+                  {language.t("common.delete")}…
+                </Menu.Item>
+              </Show>
             </>
           )}
         </Menu.Context.Content>

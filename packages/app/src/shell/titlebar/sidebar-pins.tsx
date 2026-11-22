@@ -412,23 +412,25 @@ function PinnedSessionRow(props: {
         {language.t("common.export")}…
       </Menu.Item>
       <SessionReadMenuItem server={props.item.server} session={props.item.session} />
-      <Show when={props.open}>
+      <Show when={props.open && !status.busy()}>
         <Menu.Separator />
         <Menu.Item onSelect={props.onClose}>{language.t("common.closeTab")}</Menu.Item>
       </Show>
-      <Menu.Separator />
-      <Menu.Item
-        onSelect={() =>
-          void dialog.show(() => (
-            <DeleteSessionDialog
-              title={sessionTabTitle(props.item.session.title, language.t("command.session.new"))}
-              onConfirm={remove}
-            />
-          ))
-        }
-      >
-        {language.t("common.delete")}…
-      </Menu.Item>
+      <Show when={!status.busy()}>
+        <Menu.Separator />
+        <Menu.Item
+          onSelect={() =>
+            void dialog.show(() => (
+              <DeleteSessionDialog
+                title={sessionTabTitle(props.item.session.title, language.t("command.session.new"))}
+                onConfirm={remove}
+              />
+            ))
+          }
+        >
+          {language.t("common.delete")}…
+        </Menu.Item>
+      </Show>
     </>
   )
 

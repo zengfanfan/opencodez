@@ -1018,8 +1018,10 @@ function RecentSessionTab(props: RecentSessionTabProps & { dragging?: boolean })
       <Menu.Separator />
       <Menu.Item onSelect={rename}>{language.t("common.rename")}</Menu.Item>
       <Menu.Item onSelect={props.onArchive}>{language.t("common.archive")}</Menu.Item>
-      <Menu.Separator />
-      <Menu.Item onSelect={props.onDelete}>{language.t("common.delete")}…</Menu.Item>
+      <Show when={!status.busy()}>
+        <Menu.Separator />
+        <Menu.Item onSelect={props.onDelete}>{language.t("common.delete")}…</Menu.Item>
+      </Show>
     </>
   )
 

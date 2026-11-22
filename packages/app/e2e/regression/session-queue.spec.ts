@@ -1667,3 +1667,14 @@ test("a steer moves a blocking shell to the background after its admission, so t
   expect(mock.log).toEqual(["prompt:steer", "background"])
   await transcript.screenshot({ path: testInfo.outputPath("steer-delivered.png") })
 })
+
+test("a queued prompt hides Delete in the session header", async ({ page }) => {
+  const mock = createQueueMock(["Queued prompt"])
+  const queue = await openQueue(page, mock, undefined, undefined, "idle")
+  await expect(queue.rows).toHaveCount(1)
+
+  const header = page.locator("[data-session-title]")
+  await header.getByRole("button", { name: "More options", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: "Rename", exact: true })).toBeVisible()
+  expect(await page.getByRole("menuitem", { name: "Delete…", exact: true }).count()).toBe(0)
+})

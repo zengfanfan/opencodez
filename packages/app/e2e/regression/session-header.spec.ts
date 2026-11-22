@@ -868,3 +868,98 @@ test.describe("revert", () => {
     await expect(menu.getByRole("menuitem", { name: /^(Revert to here|Undo)$/ })).toHaveCount(0)
   })
 })
+
+test("a running session has no Delete in its header menu", async ({ page }) => {
+  const running = { id: "ses_header_running", title: "Running header session" }
+  await mockWorkspace(page, {
+    name: "HeaderRunning",
+    sessions: [running],
+    sessionStatus: { [running.id]: { type: "running" } },
+  })
+  await page.goto(sessionHref(running.id))
+  await expectSessionTitle(page, running.title)
+
+  const header = page.locator("[data-session-title]")
+  await header.getByRole("button", { name: "More options", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: "Rename", exact: true })).toBeVisible()
+  expect(await page.getByRole("menuitem", { name: "Delete…", exact: true }).count()).toBe(0)
+})
+
+test("a session waiting on a permission has no Delete in its header menu", async ({ page }) => {
+  const id = "ses_header_permission"
+  await mockWorkspace(page, {
+    name: "HeaderPermission",
+    sessions: [{ id, title: "Permission header session" }],
+    sessionPermissions: {
+      [id]: [
+        {
+          id: "permission-header",
+          sessionID: id,
+          permission: "shell",
+          patterns: ["git status"],
+          metadata: {},
+          always: [],
+        },
+      ],
+    },
+  })
+  await page.goto(sessionHref(id))
+  await expectSessionTitle(page, "Permission header session")
+  await expect(page.locator('[data-component="dock-prompt"][data-kind="permission"]')).toBeVisible()
+
+  const header = page.locator("[data-session-title]")
+  await header.getByRole("button", { name: "More options", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: "Rename", exact: true })).toBeVisible()
+  expect(await page.getByRole("menuitem", { name: "Delete…", exact: true }).count()).toBe(0)
+})
+
+test("a session waiting on a form has no Delete in its header menu", async ({ page }) => {
+  const id = "ses_header_form"
+  await mockWorkspace(page, {
+    name: "HeaderForm",
+    sessions: [{ id, title: "Form header session" }],
+    forms: [
+      {
+        id: "form-header",
+        sessionID: id,
+        title: "Questions",
+        metadata: { kind: "question" },
+        fields: [
+          {
+            key: "q0",
+            type: "string",
+            title: "Implementation",
+            description: "Which implementation should be used?",
+            options: [{ value: "minimal", label: "Minimal" }],
+            custom: true,
+          },
+        ],
+      },
+    ],
+  })
+  await page.goto(sessionHref(id))
+  await expectSessionTitle(page, "Form header session")
+  await expect(page.locator('[data-component="dock-prompt"][data-kind="question"]')).toBeVisible()
+
+  const header = page.locator("[data-session-title]")
+  await header.getByRole("button", { name: "More options", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: "Rename", exact: true })).toBeVisible()
+  expect(await page.getByRole("menuitem", { name: "Delete…", exact: true }).count()).toBe(0)
+})
+
+test("an idle root with a running child has no Delete in its header menu", async ({ page }) => {
+  const parent = { id: "ses_header_parent", title: "Parent header session" }
+  const child = { id: "ses_header_child", title: "Running child session", parentID: parent.id }
+  await mockWorkspace(page, {
+    name: "HeaderChild",
+    sessions: [parent, child],
+    sessionStatus: { [child.id]: { type: "running" } },
+  })
+  await page.goto(sessionHref(parent.id))
+  await expectSessionTitle(page, parent.title)
+
+  const header = page.locator("[data-session-title]")
+  await header.getByRole("button", { name: "More options", exact: true }).click()
+  await expect(page.getByRole("menuitem", { name: "Rename", exact: true })).toBeVisible()
+  expect(await page.getByRole("menuitem", { name: "Delete…", exact: true }).count()).toBe(0)
+})

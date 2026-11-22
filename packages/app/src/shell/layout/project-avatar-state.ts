@@ -1,7 +1,7 @@
 import { createMemo, type Accessor } from "solid-js"
 import type { SessionInfo } from "@opencode/client/promise"
 import { useGlobal, useServerCtx, type ServerCtx } from "@/runtime/server/runtime"
-import { sessionPermissionRequest, sessionFormRequest } from "@/session/requests/session-request-tree"
+import { sessionPermissionRequest, sessionFormRequest, sessionTreeIDs } from "@/session/requests/session-request-tree"
 import { needsUser } from "@/session/requests/auto-approve-machine"
 import { ServerConnection } from "@/runtime/server/registry"
 import { projectSettingsKey, useSettings } from "@/settings/model"
@@ -44,7 +44,10 @@ export function useSessionTabAvatarState(
     return running(data, sessionId(), !!root?.())
   })
 
-  return { unread, loading, attention: needsAttention }
+  // One answer for "do not let the user delete this": working, queued, or waiting on the user.
+  const busy = createMemo(() => needsAttention() || loading())
+
+  return { unread, loading, attention: needsAttention, busy }
 }
 
 // The pending permission and form request that waits on the user anywhere in the session (or its family, for roots).
@@ -93,14 +96,17 @@ function attention(ctx: ServerCtx, sessionId: string, root: boolean, autoApprove
   return !!requests.permission || !!requests.form
 }
 
-// A root runs while any session in its family is busy.
+// A session runs while it or any loaded descendant is busy; `root` also covers the family it heads.
+// Check the session itself first: it may be active before its info reaches the store, and a child
+// queried with `root` must not depend on its own root ID appearing in the family scan.
 function running(data: ServerData, sessionId: string, root: boolean) {
-  if (root)
-    return data.session
-      .list()
-      .some((session) => data.session.root(session.id) === sessionId && sessionBusy(data, session.id))
+  if (sessionBusy(data, sessionId)) return true
 
-  return sessionBusy(data, sessionId)
+  if (!root) return false
+
+  const ids = new Set(sessionTreeIDs(data.session.list(), sessionId))
+
+  return data.session.list().some((session) => ids.has(session.id) && sessionBusy(data, session.id))
 }
 
 export type SessionRequests = ReturnType<typeof sessionRequests>

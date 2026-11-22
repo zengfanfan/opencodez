@@ -25,6 +25,7 @@ import {
   homeSessionSearchKey,
   type HomeSessionGroup,
   type HomeSessionRecord,
+  type HomeSessionStatusState,
   type OpenSessionOptions,
 } from "./controller"
 import type { HomeSessionsFailure, HomeSessionsListView, HomeSessionsUnavailableReason } from "./load-machine"
@@ -350,6 +351,22 @@ function failureDescription(failure: HomeSessionsFailure, language: ReturnType<t
 // The project avatar leads the row and never changes; a working session shows its activity ring at the row's trailing
 // edge, as session tabs do. `order-last` moves the ring past the labels from here, so one status subscription serves
 // both, and `ms-auto` pins it to the end even where the labels are `display: contents`.
+function HomeSessionIndicatorsView(props: { record: HomeSessionRecord; state: HomeSessionStatusState }) {
+  return (
+    <>
+      {/* A busy session shows its activity ring instead of the unread dot. */}
+      <HomeSessionLeading
+        record={props.record}
+        open={props.state.open()}
+        unread={props.state.unread() && !props.state.loading()}
+      />
+      <Show when={props.state.loading()}>
+        <ActivityRing class="order-last ms-auto" />
+      </Show>
+    </>
+  )
+}
+
 function HomeSessionIndicators(props: {
   server: HomeSessionsViewProps["server"]
   isOpenTab: HomeSessionsViewProps["isOpenTab"]
@@ -360,15 +377,7 @@ function HomeSessionIndicators(props: {
       server={props.server}
       record={props.record}
       isOpenTab={props.isOpenTab}
-      render={(state) => (
-        <>
-          {/* A busy session shows its activity ring instead of the unread dot. */}
-          <HomeSessionLeading record={props.record} open={state.open()} unread={state.unread() && !state.loading()} />
-          <Show when={state.loading()}>
-            <ActivityRing class="order-last ms-auto" />
-          </Show>
-        </>
-      )}
+      render={(state) => <HomeSessionIndicatorsView record={props.record} state={state} />}
     />
   )
 }
@@ -670,236 +679,249 @@ function HomeSessionRow(
   }
 
   return (
-    <div
-      data-component="home-session-row-container"
-      data-project-name={!!showProjectName()}
-      data-session-id={props.record.session.id}
-      class="group/session relative flex h-10 min-w-0 items-center rounded-[6px] outline-none focus:outline-none focus-visible:outline-none"
-      onContextMenu={(event) => {
-        // While renaming, keep the native menu so paste and spelling work.
-        if (editor()) return
-        event.preventDefault()
-        openMenu(event.currentTarget, event.clientX, event.clientY)
-      }}
-    >
-      <Show
-        when={!editor()}
-        fallback={
-          <div
-            data-slot="home-session-editor"
-            class="flex h-10 min-w-0 w-full flex-1 items-center py-3 ps-1.5 pe-3 md:ps-3"
-            classList={{ "gap-1.5": props.desktop, "gap-2": !props.desktop, "md:pe-10": SHOW_HOME_SESSION_ARCHIVE }}
-          >
-            <HomeSessionIndicators server={props.server} isOpenTab={props.isOpenTab} record={props.record} />
-            <div data-slot="home-session-labels" class="contents">
-              <InlineInput
-                data-component="home-session-rename"
-                aria-label={props.language.t("common.rename")}
-                dir="auto"
-                value={editor()?.draft ?? ""}
-                // Read-only rather than disabled keeps focus here while saving, so Escape can cancel the save.
-                readOnly={editor()?.status === "renaming"}
-                aria-busy={editor()?.status === "renaming" || undefined}
-                class={`
+    <HomeSessionStatusController
+      server={props.server}
+      record={props.record}
+      isOpenTab={props.isOpenTab}
+      render={(state) => (
+        <div
+          data-component="home-session-row-container"
+          data-project-name={!!showProjectName()}
+          data-session-id={props.record.session.id}
+          class="group/session relative flex h-10 min-w-0 items-center rounded-[6px] outline-none focus:outline-none focus-visible:outline-none"
+          onContextMenu={(event) => {
+            // While renaming, keep the native menu so paste and spelling work.
+            if (editor()) return
+            event.preventDefault()
+            openMenu(event.currentTarget, event.clientX, event.clientY)
+          }}
+        >
+          <Show
+            when={!editor()}
+            fallback={
+              <div
+                data-slot="home-session-editor"
+                class="flex h-10 min-w-0 w-full flex-1 items-center py-3 ps-1.5 pe-3 md:ps-3"
+                classList={{ "gap-1.5": props.desktop, "gap-2": !props.desktop, "md:pe-10": SHOW_HOME_SESSION_ARCHIVE }}
+              >
+                <HomeSessionIndicatorsView record={props.record} state={state} />
+                <div data-slot="home-session-labels" class="contents">
+                  <InlineInput
+                    data-component="home-session-rename"
+                    aria-label={props.language.t("common.rename")}
+                    dir="auto"
+                    value={editor()?.draft ?? ""}
+                    // Read-only rather than disabled keeps focus here while saving, so Escape can cancel the save.
+                    readOnly={editor()?.status === "renaming"}
+                    aria-busy={editor()?.status === "renaming" || undefined}
+                    class={`
                 block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-v2-text-text-base
                 [font-weight:530] field-sizing-content outline-none focus:outline-none focus-visible:outline-none
                  ${showProjectName() ? "max-w-[min(70%,480px)] flex-[0_1_auto]" : "flex-[1_1_auto]"}
               `}
-                style={{ "text-align": "start" }}
-                onInput={(event) =>
-                  props.onRowEvent({ type: "editor.input", sessionID: sessionID(), draft: event.currentTarget.value })
-                }
-                onKeyDown={(event) => {
-                  event.stopPropagation()
+                    style={{ "text-align": "start" }}
+                    onInput={(event) =>
+                      props.onRowEvent({
+                        type: "editor.input",
+                        sessionID: sessionID(),
+                        draft: event.currentTarget.value,
+                      })
+                    }
+                    onKeyDown={(event) => {
+                      event.stopPropagation()
 
-                  // Enter and Escape during IME composition commit or cancel
-                  // the composition, not the rename. Safari can report the
-                  // composition-confirming keydown with isComposing false but
-                  // keyCode 229.
-                  if (event.isComposing || event.keyCode === 229) return
+                      // Enter and Escape during IME composition commit or cancel
+                      // the composition, not the rename. Safari can report the
+                      // composition-confirming keydown with isComposing false but
+                      // keyCode 229.
+                      if (event.isComposing || event.keyCode === 229) return
 
-                  if (event.key === "Enter") {
-                    event.preventDefault()
-                    props.onRowEvent({
-                      type: "editor.submit",
-                      sessionID: sessionID(),
-                      server: props.server,
-                      session: props.record.session,
-                      title: title(),
-                    })
+                      if (event.key === "Enter") {
+                        event.preventDefault()
+                        props.onRowEvent({
+                          type: "editor.submit",
+                          sessionID: sessionID(),
+                          server: props.server,
+                          session: props.record.session,
+                          title: title(),
+                        })
 
-                    return
-                  }
+                        return
+                      }
 
-                  if (event.key !== "Escape") return
-                  event.preventDefault()
-                  props.onRowEvent({ type: "editor.cancel", sessionID: sessionID(), reason: "escape" })
-                }}
-                onBlur={() => props.onRowEvent({ type: "editor.cancel", sessionID: sessionID(), reason: "blur" })}
-              />
-              <Show when={showProjectName()}>
-                <HomeSessionProjectName name={props.record.projectName} />
-              </Show>
-            </div>
-          </div>
-        }
-      >
-        <button
-          type="button"
-          data-component="home-session-row"
-          aria-haspopup="menu"
-          aria-expanded={!!menu()}
-          class={`
+                      if (event.key !== "Escape") return
+                      event.preventDefault()
+                      props.onRowEvent({ type: "editor.cancel", sessionID: sessionID(), reason: "escape" })
+                    }}
+                    onBlur={() => props.onRowEvent({ type: "editor.cancel", sessionID: sessionID(), reason: "blur" })}
+                  />
+                  <Show when={showProjectName()}>
+                    <HomeSessionProjectName name={props.record.projectName} />
+                  </Show>
+                </div>
+              </div>
+            }
+          >
+            <button
+              type="button"
+              data-component="home-session-row"
+              aria-haspopup="menu"
+              aria-expanded={!!menu()}
+              class={`
             flex h-10 min-w-0 w-full flex-1 shrink-0 cursor-default items-center rounded-[6px] border-0
             bg-transparent py-3 ps-1.5 pe-3 md:ps-3 text-start text-v2-text-text-muted [font-weight:530]
             transition-[background-color,color,box-shadow] duration-[120ms] ease-in-out
             hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none
           `}
-          classList={{ "gap-1.5": props.desktop, "gap-2": !props.desktop, "md:pe-10": SHOW_HOME_SESSION_ARCHIVE }}
-          onMouseDown={(event) => {
-            if (event.button === 1) event.preventDefault()
-          }}
-          onMouseEnter={() => {
-            props.onHoverSession(props.record.session.id)
-            props.onRevealLocations(props.record)
-          }}
-          onMouseLeave={() => props.onHoverSession(undefined)}
-          onPointerDown={(event) => {
-            if (event.pointerType !== "touch") return props.onRowEvent(POINTER_DOWN)
-            const bounds = event.currentTarget.getBoundingClientRect()
-            props.onRowEvent({
-              type: "touch.down",
-              sessionID: sessionID(),
-              x: event.clientX,
-              y: event.clientY,
-              menuX: event.clientX - bounds.left,
-              menuY: event.clientY - bounds.top,
-            })
-          }}
-          onPointerMove={(event) => {
-            // Checked first so a move inside the slop, or with no long press pending, allocates nothing.
-            if (!selectLongPressMoved(props.rowState, event.clientX, event.clientY)) return
-            props.onRowEvent({ type: "touch.move", x: event.clientX, y: event.clientY })
-          }}
-          onPointerUp={() => props.onRowEvent(TOUCH_UP)}
-          onPointerCancel={() => props.onRowEvent(TOUCH_CANCEL)}
-          onKeyDown={(event) => {
-            if (event.key !== "ContextMenu" && (event.key !== "F10" || !event.shiftKey)) return
-            event.preventDefault()
-            const bounds = event.currentTarget.getBoundingClientRect()
-            openMenu(event.currentTarget, bounds.left + 12, bounds.bottom)
-          }}
-          onClick={(event) => {
-            // The long press's release click arrives however late; keyboard activation is never that click.
-            const suppress = selectRowSuppressClick(props.rowState, sessionID(), event.detail)
-            props.onRowEvent({ type: "row.clicked", sessionID: sessionID() })
+              classList={{ "gap-1.5": props.desktop, "gap-2": !props.desktop, "md:pe-10": SHOW_HOME_SESSION_ARCHIVE }}
+              onMouseDown={(event) => {
+                if (event.button === 1) event.preventDefault()
+              }}
+              onMouseEnter={() => {
+                props.onHoverSession(props.record.session.id)
+                props.onRevealLocations(props.record)
+              }}
+              onMouseLeave={() => props.onHoverSession(undefined)}
+              onPointerDown={(event) => {
+                if (event.pointerType !== "touch") return props.onRowEvent(POINTER_DOWN)
+                const bounds = event.currentTarget.getBoundingClientRect()
+                props.onRowEvent({
+                  type: "touch.down",
+                  sessionID: sessionID(),
+                  x: event.clientX,
+                  y: event.clientY,
+                  menuX: event.clientX - bounds.left,
+                  menuY: event.clientY - bounds.top,
+                })
+              }}
+              onPointerMove={(event) => {
+                // Checked first so a move inside the slop, or with no long press pending, allocates nothing.
+                if (!selectLongPressMoved(props.rowState, event.clientX, event.clientY)) return
+                props.onRowEvent({ type: "touch.move", x: event.clientX, y: event.clientY })
+              }}
+              onPointerUp={() => props.onRowEvent(TOUCH_UP)}
+              onPointerCancel={() => props.onRowEvent(TOUCH_CANCEL)}
+              onKeyDown={(event) => {
+                if (event.key !== "ContextMenu" && (event.key !== "F10" || !event.shiftKey)) return
+                event.preventDefault()
+                const bounds = event.currentTarget.getBoundingClientRect()
+                openMenu(event.currentTarget, bounds.left + 12, bounds.bottom)
+              }}
+              onClick={(event) => {
+                // The long press's release click arrives however late; keyboard activation is never that click.
+                const suppress = selectRowSuppressClick(props.rowState, sessionID(), event.detail)
+                props.onRowEvent({ type: "row.clicked", sessionID: sessionID() })
 
-            if (suppress) {
-              event.preventDefault()
+                if (suppress) {
+                  event.preventDefault()
 
-              return
-            }
+                  return
+                }
 
-            props.onOpenSession(props.record.session, { background: isBackgroundOpen(event) })
-          }}
-          onAuxClick={(event) => {
-            if (!isBackgroundOpen(event)) return
-            event.preventDefault()
-            props.onOpenSession(props.record.session, { background: true })
-          }}
-        >
-          <HomeSessionIndicators server={props.server} isOpenTab={props.isOpenTab} record={props.record} />
-          <div
-            data-slot="home-session-labels"
-            class="min-w-0 flex-1 items-center gap-1.5"
-            classList={{ flex: props.desktop, contents: !props.desktop }}
+                props.onOpenSession(props.record.session, { background: isBackgroundOpen(event) })
+              }}
+              onAuxClick={(event) => {
+                if (!isBackgroundOpen(event)) return
+                event.preventDefault()
+                props.onOpenSession(props.record.session, { background: true })
+              }}
+            >
+              <HomeSessionIndicatorsView record={props.record} state={state} />
+              <div
+                data-slot="home-session-labels"
+                class="min-w-0 flex-1 items-center gap-1.5"
+                classList={{ flex: props.desktop, contents: !props.desktop }}
+              >
+                <HomeSessionTitle title={title()} showProjectName={!!showProjectName()} />
+                <Show when={showProjectName()}>
+                  <HomeSessionProjectName name={props.record.projectName} />
+                </Show>
+                <HomeSessionLocation
+                  location={location()}
+                  show={props.showLocations || props.hoveredSession === props.record.session.id}
+                  instantHide={
+                    !props.showLocations &&
+                    props.hoveredSession !== undefined &&
+                    props.hoveredSession !== props.record.session.id
+                  }
+                  desktop={props.desktop}
+                />
+              </div>
+            </button>
+          </Show>
+          <Menu
+            modal={false}
+            placement="bottom-start"
+            gutter={2}
+            open={!!menu()}
+            onOpenChange={(open) => {
+              if (open) return
+              props.onRowEvent({ type: "menu.closed", sessionID: sessionID() })
+            }}
           >
-            <HomeSessionTitle title={title()} showProjectName={!!showProjectName()} />
-            <Show when={showProjectName()}>
-              <HomeSessionProjectName name={props.record.projectName} />
-            </Show>
-            <HomeSessionLocation
-              location={location()}
-              show={props.showLocations || props.hoveredSession === props.record.session.id}
-              instantHide={
-                !props.showLocations &&
-                props.hoveredSession !== undefined &&
-                props.hoveredSession !== props.record.session.id
-              }
-              desktop={props.desktop}
-            />
-          </div>
-        </button>
-      </Show>
-      <Menu
-        modal={false}
-        placement="bottom-start"
-        gutter={2}
-        open={!!menu()}
-        onOpenChange={(open) => {
-          if (open) return
-          props.onRowEvent({ type: "menu.closed", sessionID: sessionID() })
-        }}
-      >
-        {/* Disabled, so it takes no focus: Kobalte focuses the trigger on close, which would blur the rename editor
+            {/* Disabled, so it takes no focus: Kobalte focuses the trigger on close, which would blur the rename editor
             the Rename item just opened. Closing the menu restores focus to the row instead. */}
-        <Menu.Trigger
-          as="span"
-          aria-hidden="true"
-          disabled
-          class="pointer-events-none absolute size-px"
-          style={{ left: `${menu()?.x ?? 0}px`, top: `${menu()?.y ?? 0}px` }}
-        />
-        <Menu.Portal>
-          <Menu.Content
-            onInteractOutside={() => props.onRowEvent({ type: "menu.interact-outside", sessionID: sessionID() })}
-            // The trigger is an invisible positioning span, so Kobalte's close focus restore has no useful target;
-            // closing the menu restores focus to the row instead.
-            onCloseAutoFocus={(event) => event.preventDefault()}
-          >
-            <Menu.Item
-              onSelect={() => props.onRowEvent({ type: "rename.start", sessionID: sessionID(), title: title() })}
-            >
-              {props.language.t("common.rename")}
-            </Menu.Item>
-            <Menu.Item
-              disabled={props.isExportingSession(props.server, props.record.session)}
-              onSelect={() => props.onExportSession(props.server, props.record.session)}
-            >
-              {props.language.t("common.export")}…
-            </Menu.Item>
-            <SessionReadMenuItem server={props.server} session={props.record.session} />
-            <Menu.Separator />
-            <Menu.Item onSelect={() => props.onDeleteSession(props.server, props.record.session)}>
-              {props.language.t("common.delete")}…
-            </Menu.Item>
-          </Menu.Content>
-        </Menu.Portal>
-      </Menu>
-      <Show when={SHOW_HOME_SESSION_ARCHIVE}>
-        <div
-          class={`
+            <Menu.Trigger
+              as="span"
+              aria-hidden="true"
+              disabled
+              class="pointer-events-none absolute size-px"
+              style={{ left: `${menu()?.x ?? 0}px`, top: `${menu()?.y ?? 0}px` }}
+            />
+            <Menu.Portal>
+              <Menu.Content
+                onInteractOutside={() => props.onRowEvent({ type: "menu.interact-outside", sessionID: sessionID() })}
+                // The trigger is an invisible positioning span, so Kobalte's close focus restore has no useful target;
+                // closing the menu restores focus to the row instead.
+                onCloseAutoFocus={(event) => event.preventDefault()}
+              >
+                <Menu.Item
+                  onSelect={() => props.onRowEvent({ type: "rename.start", sessionID: sessionID(), title: title() })}
+                >
+                  {props.language.t("common.rename")}
+                </Menu.Item>
+                <Menu.Item
+                  disabled={props.isExportingSession(props.server, props.record.session)}
+                  onSelect={() => props.onExportSession(props.server, props.record.session)}
+                >
+                  {props.language.t("common.export")}…
+                </Menu.Item>
+                <SessionReadMenuItem server={props.server} session={props.record.session} />
+                <Show when={!state.busy()}>
+                  <Menu.Separator />
+                  <Menu.Item onSelect={() => props.onDeleteSession(props.server, props.record.session)}>
+                    {props.language.t("common.delete")}…
+                  </Menu.Item>
+                </Show>
+              </Menu.Content>
+            </Menu.Portal>
+          </Menu>
+          <Show when={SHOW_HOME_SESSION_ARCHIVE}>
+            <div
+              class={`
             hover-reveal absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1
             group-hover/session:opacity-100 focus-within:opacity-100
           `}
-        >
-          <Tooltip class="flex shrink-0 items-center" placement="bottom" value={props.language.t("common.archive")}>
-            <IconButton
-              data-action="home-session-archive"
-              variant="ghost-muted"
-              size="large"
-              icon={<Icon name="archive" />}
-              aria-label={props.language.t("common.archive")}
-              onClick={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                void props.onArchiveSession(props.record.session)
-              }}
-            />
-          </Tooltip>
+            >
+              <Tooltip class="flex shrink-0 items-center" placement="bottom" value={props.language.t("common.archive")}>
+                <IconButton
+                  data-action="home-session-archive"
+                  variant="ghost-muted"
+                  size="large"
+                  icon={<Icon name="archive" />}
+                  aria-label={props.language.t("common.archive")}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    void props.onArchiveSession(props.record.session)
+                  }}
+                />
+              </Tooltip>
+            </div>
+          </Show>
         </div>
-      </Show>
-    </div>
+      )}
+    />
   )
 }
 

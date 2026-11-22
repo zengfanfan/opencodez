@@ -220,10 +220,12 @@ export function ProjectSessionRow(props: {
             {language.t("common.export")}…
           </Menu.Item>
           <SessionReadMenuItem server={props.server} session={props.session} />
-          <Menu.Separator />
-          <Menu.Item disabled={!ctx()} onSelect={() => dialog.show(() => <DeleteDialog />)}>
-            {language.t("common.delete")}…
-          </Menu.Item>
+          <Show when={!status.busy()}>
+            <Menu.Separator />
+            <Menu.Item disabled={!ctx()} onSelect={() => dialog.show(() => <DeleteDialog />)}>
+              {language.t("common.delete")}…
+            </Menu.Item>
+          </Show>
         </Menu.Context.Content>
       </Menu.Context.Portal>
     </Menu.Context>

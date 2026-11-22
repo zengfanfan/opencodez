@@ -791,3 +791,26 @@ for (const state of [
     ).toBeVisible()
   })
 }
+
+test("a running Home session has no Delete while an idle one keeps it", async ({ page }) => {
+  const running = { id: "ses_home_delete_running", title: "Running home session" }
+  const idle = { id: "ses_home_delete_idle", title: "Idle home session" }
+  await mockWorkspace(page, {
+    name: "HomeDeleteBusy",
+    sessions: [running, idle],
+    sessionStatus: { [running.id]: { type: "running" } },
+  })
+  await page.goto("/")
+
+  const runningRow = row(page, running.title)
+  await expect(runningRow).toBeVisible()
+  await runningRow.click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Rename", exact: true })).toBeVisible()
+  expect(await page.getByRole("menuitem", { name: "Delete…", exact: true }).count()).toBe(0)
+  await page.keyboard.press("Escape")
+
+  const idleRow = row(page, idle.title)
+  await expect(idleRow).toBeVisible()
+  await idleRow.click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Delete…", exact: true })).toBeVisible()
+})

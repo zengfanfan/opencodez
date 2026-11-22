@@ -5,6 +5,7 @@ import { useNavigate } from "@solidjs/router"
 import { createEffect, createMemo, createSignal, on, onCleanup, untrack, type Accessor } from "solid-js"
 import { Option, Predicate, Schema } from "effect"
 import { notifySessionTabsRemoved } from "@/shell/titlebar/session-events"
+import { useSessionTabAvatarState } from "@/shell/layout/project-avatar-state"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { useLanguage } from "@/runtime/i18n/language"
 import { useSettings } from "@/settings/model"
@@ -81,6 +82,13 @@ export function createTimelineController(input: {
   const serverSDK = useServerSDK()
   const server = useServer()
   const data = server.ctx.data
+
+  const avatar = useSessionTabAvatarState(
+    () => server.key,
+    () => input.session.identity.sessionID() ?? "",
+    () => true,
+  )
+
   const settings = useSettings()
   const tabs = useTabs()
   const dialog = useDialog()
@@ -415,6 +423,8 @@ export function createTimelineController(input: {
     ),
   )
 
+  const canDelete = () => !!input.session.identity.sessionID() && !input.session.data.parentID() && !avatar.busy()
+
   return {
     data: {
       sessionKey: input.session.identity.sessionKey,
@@ -454,7 +464,11 @@ export function createTimelineController(input: {
     action: {
       export: (id: string) => exporter.export({ server: server.key, sessionID: id }),
       exporting: (id: string) => exporter.exporting({ server: server.key, sessionID: id }),
-      showDelete: (id: string) => dialog.show(() => <DeleteDialog sessionID={id} />),
+      canDelete,
+      showDelete: (id: string) => {
+        if (!canDelete()) return
+        dialog.show(() => <DeleteDialog sessionID={id} />)
+      },
       navigateParent: () => {
         const id = input.session.data.parentID()
 
