@@ -3,7 +3,7 @@ import { MarkdownProvider, type ReadMarkdownImage } from "@opencode/session-ui/c
 import { useNavigate, useParams } from "@solidjs/router"
 import { createEffect, createMemo, createSignal, on, onCleanup, untrack, type ParentProps } from "solid-js"
 import { useProviders } from "@/providers/catalog/providers"
-import { LocalProvider } from "@/providers/models/selection"
+import { LocalProvider, type DraftSelection } from "@/providers/models/selection"
 import type { ServerConnection } from "@/runtime/server/registry"
 import { sessionHref } from "@/shell/routes/session"
 import { useData } from "@/runtime/server/current"
@@ -35,6 +35,7 @@ export function SessionUIProvider(
   props: ParentProps<{
     directory: string
     server: ServerConnection.Key
+    draftSelection?: DraftSelection
   }>,
 ) {
   const navigate = useNavigate()
@@ -232,7 +233,7 @@ export function SessionUIProvider(
   }))
 
   return (
-    <LocalProvider>
+    <LocalProvider draftSelection={props.draftSelection}>
       <DataProvider
         data={sessionUIData()}
         directory={directory()}

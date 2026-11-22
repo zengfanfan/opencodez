@@ -437,7 +437,7 @@ function localStorageView(prefix?: string): LocalStorageView {
   }
 }
 
-const DRAFT_PERSISTED_KEYS = ["prompt", "comments", "file-view", "layout"]
+const DRAFT_PERSISTED_KEYS = ["prompt", "comments", "file-view", "layout", "model-selection"]
 
 export function draftPersistedKeys() {
   return DRAFT_PERSISTED_KEYS

@@ -2,6 +2,7 @@ import { createSimpleContext } from "@opencode/ui/context"
 import { base64Encode } from "@opencode/util/encode"
 import { useParams } from "@solidjs/router"
 import { batch, createEffect, createMemo, createRoot, createSignal, onCleanup, untrack } from "solid-js"
+import { reconcile } from "solid-js/store"
 import { Predicate, Schema, SchemaGetter } from "effect"
 import { useModels } from "@/providers/models/models"
 import { useSettings } from "@/settings/model"
@@ -305,9 +306,34 @@ function copyChoice(choice: ModelChoice): ModelChoice {
   return { providerID: choice.providerID, modelID: choice.modelID, variant: { ...choice.variant } }
 }
 
+export type DraftSelection = ReturnType<typeof createDraftSelection>
+
+/**
+ * A draft's selection, owned by its tab memory and persisted under the draft. The tab owns the store so closing
+ * the tab flushes it before the draft's persisted keys are removed.
+ */
+export function createDraftSelection(draftID: string, platform: Platform) {
+  const [saved, setSaved, , ready] = persisted(Persist.draft(draftID, "model-selection"), SessionSchema, {}, platform)
+  const selection = createMemo(() => readStored(saved))
+
+  return {
+    ready,
+    selection,
+    edit(change: SelectionEdit) {
+      const next = editSelection(selection(), change)
+
+      setSaved(reconcile(writeStored(next ?? { choices: {} })))
+    },
+    reset() {
+      setSaved(reconcile(writeStored({ choices: {} })))
+    },
+  }
+}
+
 export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
   name: "Local",
-  init: () => {
+  gate: true,
+  init: (input: { draftSelection?: DraftSelection }) => {
     const params = useParams()
     const sdk = useWorkspaceLocation()
     const data = useData()
@@ -355,8 +381,8 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       if (session) onCleanup(workspace().view(session))
     })
 
-    // A draft's selection is this provider's own, so two drafts on one workspace choose independently.
-    const [draft, setDraft] = createSignal<Selection>()
+    // A draft's selection belongs to its tab, so two drafts on one workspace choose independently.
+    const draft = input.draftSelection
 
     const validModel = (model: Pick<ModelKey, "providerID" | "modelID">) => {
       const provider = providers.all().get(model.providerID)
@@ -381,7 +407,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const scope = createMemo<Selection | undefined>(() => {
       const session = id()
 
-      return session ? selectSession(workspace().state(), session) : draft()
+      return session ? selectSession(workspace().state(), session) : draft?.selection()
     })
 
     const recentModel = () => {
@@ -418,7 +444,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         return
       }
 
-      setDraft((current) => editSelection(current, change))
+      draft?.edit(change)
     }
 
     const agent = {
@@ -677,13 +703,16 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const result = {
+      // A draft waits for its persisted selection before its composer mounts, so the default agent never
+      // initializes the composer and a later load is not mistaken for a user switch.
+      ready: () => !draft || draft.ready(),
       slug: createMemo(() => base64Encode(sdk().directory)),
       model,
       agent,
       session: {
         ready,
         reset() {
-          setDraft(undefined)
+          draft?.reset()
         },
         // Writes the started Session's selection into its workspace, shown or not, and leaves this draft empty.
         promote(
@@ -691,7 +720,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           session: string,
           selection: { agent: string; model: ModelKey; variant: string | undefined; choices: AgentChoices },
         ) {
-          setDraft(undefined)
+          draft?.reset()
           const target = acquireWorkspace(serverSDK.scope, dir, platform)
           target.workspace.dispatch({
             type: "session.promoted",

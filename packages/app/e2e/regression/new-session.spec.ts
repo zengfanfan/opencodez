@@ -49,6 +49,17 @@ const pendingDraft = {
 const failFirstCreate: NonNullable<WorkspaceInput["onSessionCreate"]> = (_body, attempt) =>
   attempt === 1 ? { status: 500, body: { message: "Session creation failed in the fixture" } } : undefined
 
+// The two primary agents the composer toggles between; the shared mock serves Build only unless a test asks.
+const primaryAgents = () =>
+  ["build", "plan"].map((id) => ({
+    id,
+    name: id[0]!.toUpperCase() + id.slice(1),
+    mode: "primary",
+    hidden: false,
+    request: { settings: {}, headers: {}, body: {} },
+    permissions: [],
+  }))
+
 test.use({
   serviceWorkers: "block",
   viewport: { width: 1280, height: 900 },
@@ -787,6 +798,28 @@ test("a variant picked on a worktree draft stays with the session it starts, eve
   await page.reload()
   await expect(composer.locator('[data-action="composer-model"]')).toHaveText("Pending Model")
   await expect(variant).toHaveText("high")
+})
+
+test("an agent picked on a draft survives switching to another session and back", async ({ page }) => {
+  const draftID = "draft_agent_keep"
+  const otherID = "ses_agent_keep_other"
+  await openDraft(page, {
+    name: "DraftAgentKeep",
+    draftID,
+    agents: primaryAgents(),
+    sessions: [{ id: otherID, title: "Other session" }],
+  })
+
+  const agent = page.locator('[data-component="composer"] [data-action="composer-agent"]')
+  await expect(agent).toHaveAccessibleName("Build mode. Switch to Plan")
+  await agent.click()
+  await expect(agent).toHaveAccessibleName("Plan mode. Switch to Build")
+
+  await tabLink(page, otherID).click()
+  await expectPath(page, sessionHref(otherID))
+  await page.locator(`[data-titlebar-tab-link][href="${draftHref(draftID)}"]`).click()
+  await expectPath(page, draftHref(draftID))
+  await expect(agent).toHaveAccessibleName("Plan mode. Switch to Build")
 })
 
 test("a pending worktree session keeps Session as its mobile title until the generated title arrives", async ({

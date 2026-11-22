@@ -10,6 +10,8 @@ import { ServerProvider, useServer } from "@/runtime/server/current"
 import { ServerConnection } from "@/runtime/server/registry"
 import { isServerIncompatible } from "@/runtime/server/health-machine"
 import { useTabs, type DraftTab } from "@/shell/tabs/tabs"
+import { usePlatform } from "@/runtime/platform/platform"
+import { createDraftSelection } from "@/providers/models/selection"
 import { SessionUIProvider } from "@/shell/routes/session-ui-provider"
 import NewSession from "@/new-session/screen"
 import { ServerSignedOutPanel, ServerUnavailablePanel } from "@/session/server-unavailable-panel"
@@ -60,6 +62,13 @@ function ResolvedDraftRoute(props: { draft: DraftTab }) {
 function ResolvedDraftContent(props: { draft: DraftTab }) {
   const server = useServer()
   const tabs = useTabs()
+  const platform = usePlatform()
+
+  // Tab memory owns the store: switching tabs keeps it alive, and closing the tab disposes it before the
+  // draft's persisted keys are removed.
+  const draftSelection = tabs.state(props.draft, "model-selection", () =>
+    createDraftSelection(props.draft.draftID, platform),
+  )
 
   return (
     <Show
@@ -90,7 +99,11 @@ function ResolvedDraftContent(props: { draft: DraftTab }) {
       >
         <ModelsProvider directory={props.draft.directory}>
           <LocationProvider directory={props.draft.directory}>
-            <SessionUIProvider directory={props.draft.directory} server={props.draft.server}>
+            <SessionUIProvider
+              directory={props.draft.directory}
+              server={props.draft.server}
+              draftSelection={draftSelection}
+            >
               <DraftProviders>
                 <NewSession draftId={props.draft.draftID} />
               </DraftProviders>
