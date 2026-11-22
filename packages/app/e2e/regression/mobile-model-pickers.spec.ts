@@ -229,6 +229,16 @@ test("desktop model button shows only the choose-model hint, not the model detai
   await expect(tooltip.getByText("Input & Output", { exact: true })).toHaveCount(0)
 })
 
+test("desktop model button keeps its provider tooltip in a narrow window", async ({ page }) => {
+  await page.setViewportSize({ width: 700, height: 900 })
+  await openPickerSession(page, "ltr", true)
+  const model = page.locator('[data-component="composer"] [data-action="composer-model"]')
+
+  await expect(model).toHaveAttribute("data-control-type", "drawer")
+  await model.hover()
+  await expect(page.getByRole("tooltip")).toContainText("OpenCode")
+})
+
 test("model dialog flyout follows the arrow keys, waits while one is held, and cools down after it closes", async ({
   page,
 }) => {

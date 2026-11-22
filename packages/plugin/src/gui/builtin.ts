@@ -112,6 +112,11 @@ export interface BuiltinSlotMap extends SlotMap {
     /** The location icon: monitor for the local repository, worktree for a worktree. */
     readonly icon: IconName
   }
+  /**
+   * Controls at the end of the session composer's controls row, after the model and variant controls. Rendered inside
+   * the composer's form, so a contribution must not submit it.
+   */
+  readonly "session.composer.controls": SlotMap["session.panel.end"]
 }
 
 /** A `Slot` that may also fill the slots only built-ins use. */

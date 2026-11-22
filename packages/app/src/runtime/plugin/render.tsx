@@ -42,7 +42,7 @@ import { createLinkCheck } from "./link-check"
  * Renders one plugin contribution with its context and error isolation: a contribution that throws records the
  * error and renders nothing, then runs `failed`, and the rest of the window keeps working. Contributions render on
  * timeline rows only as code block content, for a block whose language a plugin claimed, once it is complete; the
- * session header slot is per timeline.
+ * session header slot is per timeline, and the composer controls slot is per composer.
  */
 export function Contribution(props: { plugin: string; failed?: () => void; children: () => JSX.Element }) {
   const host = usePluginHost()

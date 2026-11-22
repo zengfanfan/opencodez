@@ -421,9 +421,11 @@ test("context closes the side region only when its button opened it", async ({ p
   await contextButton.click()
   await expect(context).toHaveAttribute("aria-selected", "true")
   await expect(toggle).toHaveAttribute("aria-expanded", "true")
+  await expect(contextButton).toHaveAttribute("aria-expanded", "true")
   await contextButton.click()
   await expect(context).toHaveCount(0)
   await expect(toggle).toHaveAttribute("aria-expanded", "false")
+  await expect(contextButton).toHaveAttribute("aria-expanded", "false")
 
   // With another tab open, closing Context leaves the region open on it.
   await contextButton.click()
@@ -461,13 +463,69 @@ test("context closes the side region only when its button opened it", async ({ p
 
 test("context hides zero cost for Go and free models but keeps paid-model cost", async ({ page }) => {
   const cases = [
-    { id: "ses_context_free", title: "Free model", model: "free", cost: 0, usage: false, text: "0" },
-    { id: "ses_context_paid", title: "Paid model", model: "paid", cost: 0, usage: false, text: "0·$0.00" },
-    { id: "ses_context_used", title: "Paid usage", model: "paid", cost: 1.25, usage: true, text: "2k·$1.25" },
-    { id: "ses_context_free_used", title: "Free usage", model: "free", cost: 0, usage: true, text: "2k" },
-    { id: "ses_context_mixed", title: "Previously paid", model: "free", cost: 1.25, usage: true, text: "2k·$1.25" },
-    { id: "ses_context_unknown", title: "Unknown pricing", model: "missing", cost: 0, usage: false, text: "0·$0.00" },
-    { id: "ses_context_output", title: "Output pricing", model: "output", cost: 0, usage: false, text: "0·$0.00" },
+    {
+      id: "ses_context_free",
+      title: "Free model",
+      model: "free",
+      cost: 0,
+      usage: false,
+      showCost: false,
+      details: ["Tokens 0"],
+    },
+    {
+      id: "ses_context_paid",
+      title: "Paid model",
+      model: "paid",
+      cost: 0,
+      usage: false,
+      showCost: true,
+      details: ["Tokens 0", "Cost $0.00"],
+    },
+    {
+      id: "ses_context_used",
+      title: "Paid usage",
+      model: "paid",
+      cost: 1.25,
+      usage: true,
+      showCost: true,
+      details: ["Tokens 2k", "Cost $1.25"],
+    },
+    {
+      id: "ses_context_free_used",
+      title: "Free usage",
+      model: "free",
+      cost: 0,
+      usage: true,
+      showCost: false,
+      details: ["Tokens 2k"],
+    },
+    {
+      id: "ses_context_mixed",
+      title: "Previously paid",
+      model: "free",
+      cost: 1.25,
+      usage: true,
+      showCost: true,
+      details: ["Tokens 2k", "Cost $1.25"],
+    },
+    {
+      id: "ses_context_unknown",
+      title: "Unknown pricing",
+      model: "missing",
+      cost: 0,
+      usage: false,
+      showCost: true,
+      details: ["Tokens 0", "Cost $0.00"],
+    },
+    {
+      id: "ses_context_output",
+      title: "Output pricing",
+      model: "output",
+      cost: 0,
+      usage: false,
+      showCost: true,
+      details: ["Tokens 0", "Cost $0.00"],
+    },
     {
       id: "ses_context_go",
       title: "Covered by Go",
@@ -475,7 +533,8 @@ test("context hides zero cost for Go and free models but keeps paid-model cost",
       model: "paid",
       cost: 0,
       usage: true,
-      text: "2k",
+      showCost: false,
+      details: ["Tokens 2k"],
     },
     {
       id: "ses_context_go_spend",
@@ -484,12 +543,29 @@ test("context hides zero cost for Go and free models but keeps paid-model cost",
       model: "paid",
       cost: 0.38,
       usage: true,
-      text: "2k·$0.38",
+      showCost: true,
+      details: ["Tokens 2k", "Cost $0.38"],
     },
     // The root's model is free, but its subagent spent on a paid model: the family total shows.
-    { id: "ses_context_family", title: "Paid subagent", model: "free", cost: 0, usage: true, text: "2k·$1.25" },
+    {
+      id: "ses_context_family",
+      title: "Paid subagent",
+      model: "free",
+      cost: 0,
+      usage: true,
+      showCost: true,
+      details: ["Tokens 2k", "Cost $1.25"],
+    },
     // A completed compaction resets the context until the next reply reports usage, as in the TUI.
-    { id: "ses_context_compacted", title: "Compacted", model: "paid", cost: 1.25, usage: true, text: "0·$1.25" },
+    {
+      id: "ses_context_compacted",
+      title: "Compacted",
+      model: "paid",
+      cost: 1.25,
+      usage: true,
+      showCost: true,
+      details: ["Tokens 0", "Cost $1.25"],
+    },
   ]
 
   const catalog = provider(
@@ -556,7 +632,21 @@ test("context hides zero cost for Go and free models but keeps paid-model cost",
   for (const item of cases) {
     await page.locator("[data-titlebar-tab-slot]", { hasText: item.title }).click()
     await expectSessionTitle(page, item.title)
-    await expect(button).toHaveText(item.text)
+    await button.hover()
+    const tooltip = page.getByRole("tooltip")
+
+    for (const text of item.details) {
+      await expect(tooltip).toContainText(text)
+    }
+
+    if (item.showCost) await expect(tooltip).toContainText("Cost")
+
+    if (!item.showCost) await expect(tooltip).not.toContainText("Cost")
+
+    // A completed compaction has no usage after it, so it has no context percentage.
+    if (item.usage && item.id !== "ses_context_compacted") await expect(tooltip).toContainText("Context")
+
+    await page.mouse.move(0, 0)
 
     if (item.providerID === "opencode-go") {
       await button.click()

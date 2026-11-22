@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { composerModelLabelKey, composerModelLabels, composerProviderName } from "./model-label"
+import { composerModelLabelKey, composerModelLabels, composerProviderLabel, composerProviderName } from "./model-label"
 
 function provider(
   id: string,
@@ -35,6 +35,15 @@ test.each([
 
   expect(composerProviderName("opencode", all)).toBeUndefined()
   expect(label(composerModelLabels(all), "opencode", "m")).toEqual({ provider: undefined, model: "Model" })
+})
+
+test("names the provider in a tooltip without a Console workspace prefix", () => {
+  const all = catalog(root, managed, provider("openai", "OpenAI"))
+
+  expect(composerProviderLabel("opencode", all)).toBe("OpenCode")
+  expect(composerProviderLabel(managed.id, catalog(root, managed))).toBe("OpenAI")
+  expect(composerProviderLabel(managed.id, all, [managed.id, "openai"])).toBe("OpenCode / OpenAI")
+  expect(composerProviderLabel("missing", all)).toBe("missing")
 })
 
 test.each([

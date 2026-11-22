@@ -18,11 +18,20 @@ export type ComposerControls = {
   model: {
     selection: ModelSelection
     providerName?: string
+    /** The provider as a tooltip names it, including the native OpenCode provider. */
+    providerLabel?: string
     label?: ComposerModelLabel
     paid: boolean
     loading: boolean
     /** While loading, the expected model's names from a catalog already loaded for another Location. */
-    preview?: { provider?: string; model: string; label?: ComposerModelLabel; variant: string; variants: string[] }
+    preview?: {
+      provider?: string
+      providerLabel?: string
+      model: string
+      label?: ComposerModelLabel
+      variant: string
+      variants: string[]
+    }
   }
 }
 

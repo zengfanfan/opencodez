@@ -2141,6 +2141,12 @@ test("⌘W in a focused Context tab closes it, then the panel, and keeps the ses
   await expect(toggle).toHaveAttribute("aria-expanded", "false")
   await expect(alphaTab).toHaveCount(1)
   await expectPath(page, sessionHref(alpha.id))
+
+  // The + menu still opens Context after its tab was closed.
+  await toggle.click()
+  await expect(panel.getByRole("tab", { name: "New tab", exact: true })).toHaveAttribute("aria-selected", "true")
+  await panel.getByRole("button", { name: "Context", exact: true }).click()
+  await expect(context).toHaveAttribute("aria-selected", "true")
 })
 
 test("with the side panel open, ⌘W closes its tabs from anywhere, ⌥⌘W the session tab, and ⌘⇧T undoes them newest first", async ({

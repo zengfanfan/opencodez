@@ -50,6 +50,7 @@ import { useProviders } from "@/providers/catalog/providers"
 import { SubagentBar } from "./subagent-bar"
 import { createSessionRequestModel } from "../requests/model"
 import type { Region } from "@/runtime/plugin/panels"
+import { PluginSlot } from "@/runtime/plugin/render"
 import { SessionLocationMissing } from "./location-missing"
 import { SessionPluginPills } from "./plugin-pills"
 import { createTimelineActions, type TimelineActionsView, type TimelinePendingActions } from "./timeline-actions"
@@ -625,6 +626,17 @@ export function ActiveSessionComposerRegion(props: {
                     borderUnderlay
                     readOnly={props.model.queue.undoing()}
                     suggestionBoundary={props.suggestionBoundary}
+                    controlsEnd={
+                      <PluginSlot
+                        at="session.composer.controls"
+                        input={{
+                          get session() {
+                            return props.view()
+                          },
+                          screen: props.screen,
+                        }}
+                      />
+                    }
                   />
                 </VoiceComposer>
               </Show>

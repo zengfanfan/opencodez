@@ -264,7 +264,7 @@ SDK icon fields take an `IconName` from `@opencode/plugin/gui`: the names of the
 | [`ComposerPill`](../plugin/src/gui/registries.ts)    | window  | A pill in the row above a session's composer, optionally opening a menu of rows or a popover of your own content                                                                                                                     |
 | [`CodeBlock`](../plugin/src/gui/registries.ts)       | window  | Your UI in place of the highlighted code of complete fenced code blocks of the languages you list, such as a diagram or a table                                                                                                      |
 | [`CodeBlockAction`](../plugin/src/gui/registries.ts) | window  | A button beside the Copy button of complete fenced code blocks of the languages you list, such as "Run in terminal"                                                                                                                  |
-| [`Slot`](../plugin/src/gui/registries.ts)            | window  | Content for `window.bottom`, `session.header`, `session.location.menu`, `session.panel.end`; built-ins also fill `session.location.workspace`, `session.location.branch.menu` and `session.location.path.menu` through `BuiltinSlot` |
+| [`Slot`](../plugin/src/gui/registries.ts)            | window  | Content for `window.bottom`, `session.header`, `session.location.menu`, `session.panel.end`; built-ins also fill `session.composer.controls`, `session.location.workspace`, `session.location.branch.menu` and `session.location.path.menu` through `BuiltinSlot` |
 | [`Style`](../plugin/src/gui/registries.ts)           | window  | CSS imported with `?inline`                                                                                                                                                                                                          |
 | [`Theme`](../plugin/src/gui/registries.ts)           | window  | A color theme in the app's theme file format, listed in Settings › Appearance › Theme                                                                                                                                                |
 | [`MenubarItem`](../plugin/src/gui/main.ts)           | main    | An item of the native app menu                                                                                                                                                                                                       |
@@ -288,6 +288,10 @@ action.
 session context plus its `label` and `icon`; one contribution owns it. Without a contribution, the host keeps its
 static location row. Use it to attach location actions directly
 to the displayed repository or worktree instead of adding a second menu item.
+
+`session.composer.controls` (built-ins only, through `BuiltinSlot`) adds controls at the end of the session composer's
+controls row, after the model and variant controls. It receives the owning `screen` and the live `session`, and renders
+inside the composer's form, so a contribution must not submit that form.
 
 ### Host APIs
 

@@ -1,11 +1,10 @@
-import { Show, createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js"
+import { Show, createEffect, createMemo, createSignal, onCleanup, untrack, type JSX } from "solid-js"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Button } from "@opencode/ui/button"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { Icon } from "@opencode/ui/icon"
 import { Keybind } from "@opencode/ui/keybind"
-import { Slash } from "@opencode/ui/slash"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { ComposerEditor } from "./editor/editor"
 import { DialogSelectModel, ModelSelectorDrawer } from "@/providers/models/select-dialog"
@@ -27,6 +26,8 @@ export function Composer(props: {
   borderUnderlay?: boolean
   readOnly?: boolean
   suggestionBoundary?: () => HTMLElement | undefined
+  /** Controls after the model and variant chips, such as a plugin's session usage control. */
+  controlsEnd?: JSX.Element
 }) {
   const dialog = useDialog()
   const command = useCommand()
@@ -56,6 +57,12 @@ export function Composer(props: {
     return { provider: preview ? preview.provider : props.model.model.providerName, model: modelName() }
   }
 
+  const providerLabel = () => {
+    const label = modelLabel()
+
+    return label.provider ?? props.model.model.preview?.providerLabel ?? props.model.model.providerLabel
+  }
+
   return (
     <div class="flex flex-col gap-3">
       <ComposerEditor
@@ -64,6 +71,7 @@ export function Composer(props: {
         readOnly={props.readOnly}
         class={props.class}
         modelControlsVisible={!props.model.model.loading || !!props.model.model.preview}
+        controlsEnd={props.controlsEnd}
         attachKeybind={command.keybindParts("file.attach")}
         attachShortcut={command.keybind("file.attach")}
         alternateKeybind={[formatKeybind("mod", language.t), "↵"]}
@@ -80,6 +88,7 @@ export function Composer(props: {
             keybind={command.keybindParts("model.choose")}
             model={props.model.model.selection}
             label={modelLabel()}
+            providerLabel={providerLabel()}
             onClose={props.model.restoreFocus}
             onUnpaidClick={() => dialog.show(() => <DialogSelectModelUnpaid model={props.model.model.selection} />)}
           />
@@ -97,12 +106,14 @@ function ComposerModelControl(props: {
   keybind: string[]
   model: ComposerModel["model"]["selection"]
   label: ComposerModelLabel
+  providerLabel?: string
   onClose: () => void
   onUnpaidClick: () => void
 }) {
   // A preview paints the chip in its resting state, and the loaded names replace it in place.
   const shouldAnimate = createMemo<boolean>((previous) => previous ?? (props.loading && !props.preview))
   const mobile = createMediaQuery("(max-width: 767px)")
+  const hover = createMediaQuery("(hover: hover)")
   const dialog = useDialog()
 
   const open = (detail: number) => {
@@ -157,18 +168,12 @@ function ComposerModelControl(props: {
 
   onCleanup(() => dispatch({ type: "disposed" }))
 
+  const accessibleLabel = () =>
+    props.providerLabel ? `${props.providerLabel} / ${props.label.model}` : props.label.model
+
   const content = () => (
     <>
       <span class="flex min-w-0 whitespace-nowrap leading-4">
-        <Show when={props.label.provider}>
-          {(name) => (
-            <>
-              <bdi class="min-w-0 shrink-[2] truncate text-v2-text-text-faint">{name()}</bdi>
-              <Slash />
-              <span class="sr-only">{" / "}</span>
-            </>
-          )}
-        </Show>
         <bdi class="min-w-0 truncate">{props.label.model}</bdi>
       </span>
       <span class="-ml-0.5 -mr-1 flex shrink-0">
@@ -180,11 +185,24 @@ function ComposerModelControl(props: {
   return (
     <Show when={!props.loading || props.preview}>
       <Tooltip
-        inactive={mobile()}
+        inactive={!hover()}
         placement="top"
+        contentClass="max-w-[calc(100vw-16px)]"
         value={
           <>
-            {props.title}
+            <span class="flex min-w-0 items-center gap-1">
+              {props.title}
+              <Show when={props.providerLabel}>
+                {(name) => (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <bdi dir="auto" class="min-w-0 max-w-[240px] truncate">
+                      {name()}
+                    </bdi>
+                  </>
+                )}
+              </Show>
+            </span>
             <Keybind keys={props.keybind} variant="neutral" />
           </>
         }
@@ -202,6 +220,7 @@ function ComposerModelControl(props: {
               class="min-w-0 max-w-[60cqw] justify-start ![font-weight:440]"
               classList={{ "animate-in fade-in": shouldAnimate() }}
               style={{ height: "28px" }}
+              aria-label={accessibleLabel()}
               aria-busy={pending() || undefined}
               onMouseDown={(event: MouseEvent) => event.preventDefault()}
               onClick={(event: MouseEvent) =>
@@ -230,6 +249,7 @@ function ComposerModelControl(props: {
                 classList={{ "animate-in fade-in": shouldAnimate() }}
                 data-action="composer-model"
                 data-control-type="drawer"
+                aria-label={accessibleLabel()}
               >
                 {content()}
               </Button>

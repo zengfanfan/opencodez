@@ -802,7 +802,11 @@ test("a managed composer label follows direct connections, not picker filtering 
   const control = page.locator('[data-action="composer-model"]')
   const picker = page.getByRole("dialog", { name: "Select model", exact: true })
   const selected = picker.locator('[data-option-key="console-openai:gpt"]')
-  await expect(control).toHaveText("OpenAI / GPT")
+  await expect(control).toHaveText("GPT")
+  await control.hover()
+  await expect(page.getByRole("tooltip")).toContainText("OpenAI")
+  await expect(page.getByRole("tooltip")).not.toContainText("Anomaly")
+  await page.mouse.move(0, 0)
 
   connected.direct = true
   await view.push([
@@ -821,7 +825,7 @@ test("a managed composer label follows direct connections, not picker filtering 
       data: {},
     },
   ])
-  await expect(control).toHaveText("OpenCode / OpenAI / GPT")
+  await expect(control).toHaveText("GPT")
   await expect(control).toHaveAccessibleName("OpenCode / OpenAI / GPT")
   await control.click()
   const search = picker.getByRole("combobox", { name: "Search models", exact: true })
@@ -829,7 +833,7 @@ test("a managed composer label follows direct connections, not picker filtering 
   await search.fill("GPT")
   await expect(picker.locator('[data-option-key="openai:direct-model"]')).toHaveCount(0)
   await expect(selected).toHaveAttribute("aria-current", "true")
-  await expect(control).toHaveText("OpenCode / OpenAI / GPT")
+  await expect(control).toHaveText("GPT")
   await search.press("Escape")
   await expect(picker).toBeHidden()
 
@@ -850,7 +854,7 @@ test("a managed composer label follows direct connections, not picker filtering 
       data: {},
     },
   ])
-  await expect(control).toHaveText("OpenAI / GPT")
+  await expect(control).toHaveText("GPT")
 
   await view.editor.fill("Keep the managed provider selected")
   await view.editor.press("Enter")
@@ -1545,6 +1549,34 @@ test("a sent shell command returns the composer to prompt mode, and ! enters she
   await expect(scroll).toHaveText("Enter shell command… git status")
 })
 
+test("distinguishes providers that share a display name in the model label", async ({ page }) => {
+  const sessions = [
+    { id: "ses_duplicate_a", title: "Duplicate A", model: { id: "m", providerID: "a" } },
+    { id: "ses_duplicate_b", title: "Duplicate B", model: { id: "m", providerID: "b" } },
+  ]
+
+  await openSession(page, {
+    name: "DuplicateProviders",
+    sessions,
+    provider: {
+      all: [
+        { id: "a", name: "OpenAI", models: { m: { id: "m", name: "Model" } } },
+        { id: "b", name: "OpenAI", models: { m: { id: "m", name: "Model" } } },
+      ],
+      connected: ["a", "b"],
+      default: { providerID: "a", modelID: "m" },
+    },
+  })
+  const model = page.locator('[data-component="composer"] [data-action="composer-model"]')
+
+  await page.locator(`[data-titlebar-tab-link][href="${sessionHref(sessions[0]!.id)}"]`).click()
+  await expect(model).toHaveText("Model")
+  await expect(model).toHaveAccessibleName("a / Model")
+
+  await page.locator(`[data-titlebar-tab-link][href="${sessionHref(sessions[1]!.id)}"]`).click()
+  await expect(model).toHaveAccessibleName("b / Model")
+})
+
 test("marks a Console provider with its workspace only when it is also connected directly", async ({ page }) => {
   const model = (id: string, name: string) => ({ [id]: { id, name, limit: { context: 200_000 } } })
 
@@ -1606,6 +1638,13 @@ test("shows thinking on hover or a non-default selection while preserving keyboa
   const composer = page.locator('[data-component="composer"]')
   const control = composer.getByRole("button", { name: "Choose model variant" })
   const option = (name: string) => page.getByRole("menuitemradio", { name, exact: true })
+  const context = composer.getByRole("button", { name: "Toggle session context", exact: true })
+  const model = composer.locator('[data-action="composer-model"]')
+
+  await expect(context).toBeVisible()
+  await expect(
+    page.locator("[data-session-title]").getByRole("button", { name: "Toggle session context", exact: true }),
+  ).toHaveCount(0)
 
   await page.mouse.move(0, 0)
   await expect(control).toHaveText("default")
@@ -1614,6 +1653,20 @@ test("shows thinking on hover or a non-default selection while preserving keyboa
 
   await input.hover()
   await expect(control).toHaveCSS("opacity", "1")
+
+  const [modelBox, variantBox, contextBox] = await Promise.all([
+    model.boundingBox(),
+    control.boundingBox(),
+    context.boundingBox(),
+  ])
+
+  expect(
+    modelBox &&
+      variantBox &&
+      contextBox &&
+      variantBox.x >= modelBox.x + modelBox.width &&
+      contextBox.x >= variantBox.x + variantBox.width,
+  ).toBe(true)
 
   // The menu keeps the control visible after the pointer leaves.
   await control.click()

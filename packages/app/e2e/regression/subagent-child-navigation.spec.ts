@@ -49,6 +49,19 @@ test("navigates to a subagent child session missing from the session list", asyn
   await Promise.all([expect(page).toHaveURL(sessionHref(parentID)), expectSessionTitle(page, parentTitle)])
 })
 
+test("opens Context from the side panel in a child session without a composer", async ({ page }) => {
+  await setup(page)
+  await openChildFromParent(page)
+
+  await expect(page.getByRole("button", { name: "Toggle session context", exact: true })).toHaveCount(0)
+  await page.getByRole("button", { name: "Toggle review", exact: true }).click()
+
+  const panel = page.locator("#review-panel")
+  await expect(panel.getByRole("tab", { name: "New tab", exact: true })).toHaveAttribute("aria-selected", "true")
+  await panel.getByRole("button", { name: "Context", exact: true }).click()
+  await expect(panel.getByRole("tab", { name: "Context", exact: true })).toHaveAttribute("aria-selected", "true")
+})
+
 test("keeps the parent title anchored when opening a subagent", async ({ page }) => {
   await setup(page)
 

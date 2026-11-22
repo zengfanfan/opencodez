@@ -46,6 +46,26 @@ export function composerProviderName(
   return direct ? `OpenCode / ${name}` : name
 }
 
+/**
+ * The provider name a tooltip or accessible label shows: always named, and stripped of a Console workspace prefix
+ * when the Console root provider is present.
+ */
+export function composerProviderLabel(
+  providerID: string,
+  catalog: ReadonlyMap<string, Provider>,
+  connected?: readonly string[],
+) {
+  const provider = catalog.get(providerID)
+
+  if (!provider) return providerID
+  const name = composerProviderName(providerID, catalog, connected)
+
+  if (name) return name
+  const group = consoleProviderGroup([...catalog.values()])
+
+  return group ? consoleProviderName(group, provider.name) : provider.name
+}
+
 export function composerModelLabels(
   catalog: ReadonlyMap<string, Provider>,
   connected?: readonly string[],

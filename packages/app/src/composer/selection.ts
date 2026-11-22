@@ -19,7 +19,7 @@ import type { AgentChoices } from "@/providers/models/selection-machine"
 import { useComposerState } from "./persistence"
 import { useConfiguredModel } from "@/providers/models/configured"
 import { useGlobal } from "@/runtime/server/runtime"
-import { composerModelLabelKey, composerModelLabels, composerProviderName } from "./model-label"
+import { composerModelLabelKey, composerModelLabels, composerProviderLabel, composerProviderName } from "./model-label"
 
 export function createComposerControls(input: { model?: ModelSelection } = {}) {
   const local = useLocal()
@@ -28,12 +28,9 @@ export function createComposerControls(input: { model?: ModelSelection } = {}) {
   const providers = useProviders(() => sdk().directory)
   const models = useGlobal().models
 
-  const modelLabels = createMemo(() =>
-    composerModelLabels(
-      providers.all(),
-      providers.connected().map((provider) => provider.id),
-    ),
-  )
+  const connected = createMemo(() => providers.connected().map((provider) => provider.id))
+
+  const modelLabels = createMemo(() => composerModelLabels(providers.all(), connected()))
 
   const loading = () => {
     const selection = input.model ?? local.model
@@ -55,7 +52,7 @@ export function createComposerControls(input: { model?: ModelSelection } = {}) {
       ? [
           {
             all: providers.all(),
-            connected: providers.connected().map((provider) => provider.id),
+            connected: connected(),
           },
         ]
       : [undefined, ...data.session.list().map((item) => item.location)].map((location) => {
@@ -83,6 +80,7 @@ export function createComposerControls(input: { model?: ModelSelection } = {}) {
 
     return {
       provider: composerProviderName(expected.model.providerID, match.all, match.connected),
+      providerLabel: composerProviderLabel(expected.model.providerID, match.all, match.connected),
       model: match.model.name.replace("(latest)", "").trim(),
       label: composerModelLabels(match.all, match.connected).get(
         composerModelLabelKey(expected.model.providerID, expected.model.modelID),
@@ -112,13 +110,8 @@ export function createComposerControls(input: { model?: ModelSelection } = {}) {
       },
       model: {
         selection,
-        providerName:
-          key &&
-          composerProviderName(
-            key.providerID,
-            providers.all(),
-            providers.connected().map((provider) => provider.id),
-          ),
+        providerName: key && composerProviderName(key.providerID, providers.all(), connected()),
+        providerLabel: key && composerProviderLabel(key.providerID, providers.all(), connected()),
         label: key && modelLabels().get(composerModelLabelKey(key.providerID, key.modelID)),
         paid: providers.paid().length > 0,
         // The session's model applies only to its agent, so resolve agents before showing a model.

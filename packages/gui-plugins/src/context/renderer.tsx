@@ -1,6 +1,6 @@
 import { lazy, onCleanup, Show, Suspense } from "solid-js"
-import { Slot, usePanel, type Plugin } from "@opencode/plugin/gui"
-import { BuiltinPanel, onIdle, type BuiltinPanelTab } from "@opencode/plugin/gui/builtin"
+import { MenuItem, usePanel, type Plugin } from "@opencode/plugin/gui"
+import { BuiltinPanel, BuiltinSlot, onIdle, type BuiltinPanelTab } from "@opencode/plugin/gui/builtin"
 import type definition from "./index"
 import { SessionContextUsage } from "./indicator"
 
@@ -27,12 +27,30 @@ const setup: Plugin.Setup<typeof definition> = (ctx) => {
     ),
   }
 
-  ctx.add(Slot, {
-    at: "session.header",
-    order: 10,
-    render: (input) => (
-      <SessionContextUsage session={input.session} active={input.active} placement="bottom" compact={input.compact} />
-    ),
+  ctx.add(
+    MenuItem,
+    (): MenuItem => {
+      const session = ctx.sessions.current()
+
+      return {
+        menu: "session.panel",
+        id: "main",
+        title: ctx.t("tab.title"),
+        icon: "status",
+        opened: !!session && ctx.layout.state(`${ctx.id}:main`, session) !== "closed",
+        order: 40,
+        run: () => {
+          const current = ctx.sessions.current()
+
+          if (current) ctx.layout.open(`${ctx.id}:main`, current, { tab: "select" })
+        },
+      }
+    },
+  )
+
+  ctx.add(BuiltinSlot, {
+    at: "session.composer.controls",
+    render: (input) => <SessionContextUsage session={input.session} placement="top" />,
   })
 
   ctx.add(
