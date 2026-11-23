@@ -32,8 +32,6 @@ export function SessionUserMessage(props: {
   /** The newest delivered prompt, whose revert undoes the last turn. */
   latest?: boolean
   runSnaps?: () => boolean
-  runHovered?: boolean
-  onMenuOpenChange?: (open: boolean) => void
   fold?: boolean
   expanded?: boolean
   onExpandedChange?: (expanded: boolean) => void
@@ -52,8 +50,6 @@ export function SessionUserMessage(props: {
       run={props.run}
       latest={props.latest}
       runSnaps={props.runSnaps}
-      runHovered={props.runHovered}
-      onMenuOpenChange={props.onMenuOpenChange}
       fold={props.fold}
       expanded={props.expanded}
       onExpandedChange={props.onExpandedChange}

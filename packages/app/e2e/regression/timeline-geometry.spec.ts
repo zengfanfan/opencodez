@@ -851,9 +851,7 @@ async function scrollsBehindComposerRegion(
   await expect.poll(geometry).toEqual(expected)
 }
 
-test("groups consecutive sent prompts under the last one's meta line, with each bubble's actions beside it", async ({
-  page,
-}) => {
+test("reveals a footer on every sent prompt in a run on hover", async ({ page }) => {
   const prompt = (id: string, text: string, created: number) =>
     userMessage([userText(text, { id: `prt_${id}_text` })], { id, created })
 
@@ -870,9 +868,10 @@ test("groups consecutive sent prompts under the last one's meta line, with each 
   const first = row("msg_0001_run")
   const last = row("msg_0002_run")
   const bubble = (row: Locator) => row.locator('[data-slot="user-message-text"]')
+  const footer = (row: Locator) => row.locator('[data-slot="user-message-footer"]')
   await expect(bubble(last)).toHaveText("Like the iOS app does.")
 
-  // Bubbles of a run sit 4px apart, as in the iOS app, and only the last carries the meta line.
+  // Each bubble keeps its own footer; the first footer plus the 4px run gap makes the bubbles 32px apart.
   await expect
     .poll(async () => {
       const above = (await bubble(first).boundingBox())!
@@ -880,17 +879,21 @@ test("groups consecutive sent prompts under the last one's meta line, with each 
 
       return Math.round(below.y - above.y - above.height)
     })
-    .toBe(4)
-  await expect(first.locator('[data-slot="user-message-copy-wrapper"]')).toBeHidden()
-  await expect(last.locator('[data-slot="user-message-copy-wrapper"]')).toBeVisible()
+    .toBe(32)
+  await expect(footer(first)).toHaveCSS("opacity", "0")
+  await expect(footer(last)).toHaveCSS("opacity", "0")
 
-  // The first message keeps its own actions, in a chevron its bubble shows on hover.
   await bubble(first).hover()
-  await expect(first.locator('[data-slot="user-message-menu"]')).toHaveCSS("opacity", "1")
-  await expect(first.getByRole("button", { name: "More actions" })).toHaveCount(1)
+  await expect(footer(first)).toHaveCSS("opacity", "1")
+  await bubble(last).hover()
+  await expect(footer(last)).toHaveCSS("opacity", "1")
+  await page.mouse.move(0, 0)
+  await expect(footer(first)).toHaveCSS("opacity", "0")
+  await expect(footer(last)).toHaveCSS("opacity", "0")
+  await expect(first.getByRole("button", { name: "More actions" })).toHaveCount(0)
 })
 
-test("keeps the meta lines under messages reachable in the New timeline", async ({ page }) => {
+test("keeps the footer under a message reachable in the New timeline", async ({ page }) => {
   await setupTimeline(page, {
     settings: { newTimeline: true },
     messages: [
@@ -916,14 +919,15 @@ test("keeps the meta lines under messages reachable in the New timeline", async 
   await expect(completed).toBeVisible()
   await expect(completed).toHaveAttribute("datetime", "2023-11-14T22:13:22.000Z")
 
-  // Each virtual row clips to its measured height, so a meta line drawn below its row is cut off.
+  // Each virtual row clips to its measured height, so a footer drawn below its row is cut off.
+  const footer = user.locator('[data-slot="user-message-footer"]')
+  await expect(footer).toHaveCSS("opacity", "0")
   await user.locator('[data-slot="user-message-text"]').hover()
-  const meta = user.locator('[data-slot="user-message-copy-wrapper"]')
-  await expect(meta).toHaveCSS("opacity", "1")
+  await expect(footer).toHaveCSS("opacity", "1")
   const virtualRow = content.locator("[data-timeline-key]", { has: page.locator(userRow) })
-  const metaBox = (await meta.boundingBox())!
+  const footerBox = (await footer.boundingBox())!
   const rowBox = (await virtualRow.boundingBox())!
-  expect(metaBox.y + metaBox.height).toBeLessThanOrEqual(rowBox.y + rowBox.height)
+  expect(footerBox.y + footerBox.height).toBeLessThanOrEqual(rowBox.y + rowBox.height)
 
   // Hover only lands on what paints on top, so a clipped or covered Copy response never receives the pointer.
   await reply.getByRole("button", { name: "Copy response" }).hover()

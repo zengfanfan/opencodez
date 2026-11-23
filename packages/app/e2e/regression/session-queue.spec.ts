@@ -8,8 +8,14 @@ import { Schema } from "effect"
 import { holdRoute, provider, seed, SERVER } from "../utils/app"
 import type { MockServerConfig } from "../utils/mock-server"
 import { installSseTransport } from "../utils/sse-transport"
-import { chooseUserMessageAction, openUserMessageMenu } from "../utils/timeline"
+import { chooseUserMessageAction } from "../utils/timeline"
 import { openSession } from "../utils/workspace"
+
+declare global {
+  interface Window {
+    __growPointer?: Promise<string>
+  }
+}
 
 const sessionID = "ses_session_queue_regression"
 
@@ -172,6 +178,7 @@ async function openQueue(
   status: "idle" | "running" = "running",
   model = { id: "queue-model", name: "Queue Model" },
   config: Pick<MockServerConfig, "beforeAgentsResponse"> = {},
+  newTimeline = false,
 ) {
   const options: Parameters<typeof openSession>[1] = {
     name: "SessionQueueRegression",
@@ -196,7 +203,12 @@ async function openQueue(
     ...config,
   }
 
-  if (followUpBehavior) options.seed = { settings: { general: { followUpBehavior } } }
+  if (followUpBehavior || newTimeline) {
+    const general = newTimeline ? { followUpBehavior, newTimeline: true } : { followUpBehavior }
+
+    options.seed = { settings: { general } }
+  }
+
   await openSession(page, options)
   const composer = page.locator('[data-component="composer"]')
 
@@ -1268,9 +1280,11 @@ for (const [action, status] of [
 
     if (status === "steering") await expect(message).toHaveAttribute("data-pending", "true")
     else await expect(message).not.toHaveAttribute("data-pending")
-    const menu = await openUserMessageMenu(page, pending)
-    await expect(menu.getByRole("menuitem", { name: /^(Revert to here|Undo)$/ })).toHaveCount(0)
-    await menu.getByRole("menuitem", { name: action, exact: true }).click()
+    await pending.locator('[data-slot="user-message-text"]').hover()
+    const footer = pending.locator('[data-slot="user-message-footer"]')
+    await expect(footer).toHaveCSS("opacity", "1")
+    await expect(footer.getByRole("button", { name: /^(Revert to here|Undo)$/ })).toHaveCount(0)
+    await footer.getByRole("button", { name: action, exact: true }).click()
 
     await expect(pending).toHaveCount(0)
     expect(mock.changes).toEqual([{ inboxID, action: action === "Delete" ? "cancel" : "queue" }])
@@ -1282,9 +1296,7 @@ for (const [action, status] of [
   })
 }
 
-test("waiting steers group under one Pending line, each keeping its own actions in its chevron menu", async ({
-  page,
-}) => {
+test("waiting steers each show their own Pending footer and actions", async ({ page }) => {
   const mock = createQueueMock(
     ["U2: Also check the retry path.", "U3: And rebase on beta first."],
     [{ id: "msg_queue_delivered", type: "user", text: "First prompt", time: { created: 1 } }],
@@ -1297,15 +1309,159 @@ test("waiting steers group under one Pending line, each keeping its own actions 
   await expect(last).toContainText("U3: And rebase on beta first.")
   await expect(first.locator('[data-component="user-message"]')).toHaveAttribute("data-pending", "true")
 
-  // The run's last steer carries the one Pending line; the first folds its line away.
-  await expect(last.locator('[data-slot="user-message-meta"]')).toContainText("Pending", { useInnerText: true })
-  await expect(first.locator('[data-slot="user-message-meta"]')).toBeHidden()
+  for (const [row, text] of [
+    [first, "U2: Also check the retry path."],
+    [last, "U3: And rebase on beta first."],
+  ] as const) {
+    await expect(row.locator('[data-slot="user-message-footer"]')).toHaveCSS("opacity", "0")
+    await row.locator('[data-slot="user-message-text"]').hover()
+    await expect(row.locator('[data-slot="user-message-footer"]')).toHaveCSS("opacity", "1")
+    await expect(row.locator('[data-slot="user-message-pending"]')).toHaveText("Pending")
+    await expect(row.locator('[data-slot="user-message-text"]')).toHaveText(text)
+  }
 
-  await first.locator('[data-slot="user-message-text"]').hover()
-  await expect(first.locator('[data-slot="user-message-menu"]')).toHaveCSS("opacity", "1")
   await chooseUserMessageAction(page, first, "Move to queue")
   await expect.poll(() => mock.changes).toEqual([{ inboxID: mock.rows[0].id, action: "queue" }])
 })
+
+test("a second waiting steer joins the pending run in the new timeline", async ({ page }) => {
+  const mock = createQueueMock([], [{ id: "msg_queue_delivered", type: "user", text: "First prompt", time: { created: 1 } }])
+  const view = await openQueue(page, mock, "steer", undefined, "running", undefined, {}, true)
+  const transcript = page.locator("[data-timeline-virtual-content]")
+  expect(await page.locator('[data-timeline="next"]').count()).toBeGreaterThan(0)
+  const firstText = "First steer while the model commits"
+  const secondText = "Second steer joins the run"
+
+  const commit = await holdRoute(page, (url) => url.pathname === `/api/session/${sessionID}/prompt`, {
+    method: "POST",
+  })
+
+  await view.input.fill(firstText)
+  await view.input.press("Enter")
+  await commit.arrived
+  await expect(transcript.locator('[data-timeline-row="UserMessage"]', { hasText: firstText })).toContainText(firstText)
+  await expect(transcript.locator('[data-slot="user-message-pending"]')).toHaveText("Pending")
+
+  commit.release()
+  await expect.poll(() => mock.prompts.map((prompt) => prompt.text)).toEqual([firstText])
+  const firstID = mock.rows[0].id
+  const first = transcript.locator(`[data-timeline-row="UserMessage"][data-message-id="${firstID}"]`)
+  await expect(first).toBeVisible()
+  await expect(transcript.locator("[data-timeline-grow]")).toHaveCount(0)
+
+  await page.evaluate((admittedID) => {
+    window.__growPointer = new Promise<string>((resolve) => {
+      let observer: MutationObserver | undefined
+
+      const find = (node: Node) => {
+        if (!(node instanceof HTMLElement)) return undefined
+
+        if (!node.hasAttribute("data-timeline-grow")) return undefined
+
+        if (node.getAttribute("data-timeline-row") !== "UserMessage") return undefined
+
+        if (node.dataset.messageId === admittedID) return undefined
+
+        return node
+      }
+
+      const inspect = (node: Node) => {
+        const found = find(node)
+
+        if (found) {
+          observer?.disconnect()
+          resolve(getComputedStyle(found).pointerEvents)
+
+          return true
+        }
+
+        if (node instanceof HTMLElement) {
+          for (const child of node.querySelectorAll<HTMLElement>('[data-timeline-grow]')) {
+            const nested = find(child)
+
+            if (!nested) continue
+
+            observer?.disconnect()
+            resolve(getComputedStyle(nested).pointerEvents)
+
+            return true
+          }
+        }
+
+        return false
+      }
+
+      observer = new MutationObserver((records) => {
+        for (const record of records) {
+          if (record.type === "attributes") {
+            if (inspect(record.target)) return
+
+            continue
+          }
+
+          for (const node of record.addedNodes) {
+            if (inspect(node)) return
+          }
+        }
+      })
+
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["data-timeline-grow"],
+        childList: true,
+        subtree: true,
+      })
+    })
+  }, firstID)
+
+  await view.input.fill(secondText)
+  await view.input.press("Enter")
+
+  const pointer = await page.evaluate(() => {
+    if (!window.__growPointer) throw new Error("Growth observer was not installed")
+
+    return window.__growPointer
+  })
+
+  expect(pointer).toBe("none")
+  await expect(transcript.locator("[data-timeline-grow]")).toHaveCount(0)
+
+  const second = transcript.locator('[data-timeline-row="UserMessage"]', { hasText: secondText })
+  const firstFooter = first.locator('[data-slot="user-message-footer"]')
+  const secondFooter = second.locator('[data-slot="user-message-footer"]')
+  await first.locator('[data-slot="user-message-text"]').hover()
+  await expect(firstFooter).toHaveCSS("opacity", "1")
+  const firstBox = (await firstFooter.boundingBox())!
+  await second.locator('[data-slot="user-message-text"]').hover()
+  await expect(secondFooter).toHaveCSS("opacity", "1")
+  const secondBubble = (await second.locator('[data-slot="user-message-text"]').boundingBox())!
+
+  expect(firstBox.y + firstBox.height).toBeLessThanOrEqual(secondBubble.y)
+  await expect(firstFooter.locator('[data-slot="user-message-pending"]')).toHaveText("Pending")
+  await expect(secondFooter.locator('[data-slot="user-message-pending"]')).toHaveText("Pending")
+
+  await page.mouse.move(0, 0)
+  await expect(firstFooter).toHaveCSS("opacity", "0")
+  await expect(secondFooter).toHaveCSS("opacity", "0")
+
+  const leftovers = await second.evaluate((row) => {
+    // SAFETY: the locator resolves a timeline row element, which is an HTMLElement.
+    const element = row as HTMLElement
+    // SAFETY: the row always renders its session-turn content wrapper before it is measured.
+    const content = element.firstElementChild as HTMLElement | null
+
+    return {
+      pointerEvents: element.style.pointerEvents,
+      height: element.style.height,
+      opacity: content?.style.opacity,
+      visibility: content?.style.visibility,
+      transform: content?.style.transform,
+    }
+  })
+
+  expect(leftovers).toEqual({ pointerEvents: "", height: "", opacity: "", visibility: "", transform: "" })
+})
+
 
 test("/undo returns a pending steer's review comment to the composer", async ({ page }) => {
   const display = "tighten this"
@@ -1436,18 +1592,17 @@ for (const delivery of ["steer", "queue"] as const) {
         : undefined
 
     if (colors) {
-      // A pending steer is grey, switches to it without a transition, and keeps its Pending row in view without hover.
+      // A pending steer is grey and switches to it without a transition; hover reveals its Pending footer.
       await expect(bubble).toHaveCSS("background-color", colors.pending.background)
       await expect(bubble).toHaveCSS("color", colors.pending.text)
       await expect(bubble).toHaveCSS("transition-duration", "0s")
-      await expect(pending.locator('[data-slot="user-message-copy-wrapper"]')).toHaveCSS("opacity", "1")
-      // Pending closes the meta line, after the agent and model that show on hover.
-      await expect(pending.locator('[data-slot="user-message-meta"]')).toHaveText(
-        /^Build\s*·\s*Queue Model\s*·\s*Pending$/,
-        {
-          useInnerText: true,
-        },
+      await bubble.hover()
+      await expect(pending.locator('[data-slot="user-message-footer"]')).toHaveCSS("opacity", "1")
+      await expect(pending.locator('[data-slot="user-message-pending"]')).toHaveText("Pending")
+      await expect(pending.locator('[data-slot="user-message-agent"] .sr-only')).toHaveText(
+        /^Build\s*·\s*Queue Model$/,
       )
+      await expect(pending.locator('[data-slot="user-message-meta"]')).toHaveCount(0)
       await bubble.evaluate((element) => (element.dataset.deliveryMarker = "pending"))
     }
 
@@ -1529,9 +1684,12 @@ for (const delivery of ["steer", "queue"] as const) {
 
     if (colors) {
       await expect(bubble).toHaveAttribute("data-delivery-marker", "pending")
-      await expect(pending.locator('[data-slot="user-message-meta"]')).toHaveText(/^Build\s*·\s*Queue Model$/, {
-        useInnerText: true,
-      })
+      await expect(pending.locator('[data-slot="user-message-pending"]')).toHaveCount(0)
+      await expect(pending.locator('[data-slot="user-message-time"]')).toBeVisible()
+      await expect(pending.locator('[data-slot="user-message-agent"] .sr-only')).toHaveText(
+        /^Build\s*·\s*Queue Model$/,
+      )
+      await expect(pending.locator('[data-slot="user-message-meta"]')).toHaveCount(0)
       await expect(bubble).toHaveCSS("background-color", colors.delivered.background)
       await expect(bubble).toHaveCSS("color", colors.delivered.text)
       // Only delivery animates the colour; reduced motion switches instantly.

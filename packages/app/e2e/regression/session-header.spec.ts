@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test"
 import { REMOTE_SERVER, seed, sessionHref } from "../utils/app"
 import { fixture, mockStressTimeline } from "../utils/session-fixture"
 import { reviewTabs } from "../utils/side-panel"
-import { chooseUserMessageAction, openUserMessageMenu } from "../utils/timeline"
+import { chooseUserMessageAction } from "../utils/timeline"
 import { expectSessionTitle } from "../utils/waits"
 import { mockRemoteServer, mockWorkspace, openSession } from "../utils/workspace"
 
@@ -739,7 +739,7 @@ test.describe("revert", () => {
     )
 
     // The mock server never sends session.revert.staged, so Undo must not depend on it.
-    await page.getByRole("button", { name: "Undo", exact: true }).click()
+    await page.locator('[data-testid^="toast-v2-"]').getByRole("button", { name: "Undo", exact: true }).click()
     await cleared
     await expect(prompt).toHaveText("Unsent draft")
   })
@@ -750,7 +750,10 @@ test.describe("revert", () => {
     const staged: { sessionID: string; messageID: string }[] = []
     const { session, editor } = await openSession(page, { ...workspace, onRevertStage: (input) => staged.push(input) })
     const prompt = page.getByRole("textbox", { name: "Prompt" })
-    const undoToast = page.getByRole("button", { name: "Undo", exact: true })
+
+    const undoToast = page
+      .locator('[data-testid^="toast-v2-"]')
+      .getByRole("button", { name: "Undo", exact: true })
 
     const slash = async (command: string) => {
       await editor.press("ControlOrMeta+a")
@@ -816,7 +819,7 @@ test.describe("revert", () => {
         new URL(response.url()).pathname === "/api/session/ses_rewind_a/revert/stage",
     )
 
-    await page.getByRole("button", { name: "Undo", exact: true }).click()
+    await page.locator('[data-testid^="toast-v2-"]').getByRole("button", { name: "Undo", exact: true }).click()
     await restaged
     expect(staged).toEqual([
       { sessionID: "ses_rewind_a", messageID: "msg_first" },
@@ -864,8 +867,13 @@ test.describe("revert", () => {
     })
     await page.goto(sessionHref("ses_child"))
     await expectSessionTitle(page, "Session message revert")
-    const menu = await openUserMessageMenu(page, page.locator('[data-message-id="msg_second"]'))
-    await expect(menu.getByRole("menuitem", { name: /^(Revert to here|Undo)$/ })).toHaveCount(0)
+    const row = page.locator('[data-message-id="msg_second"]')
+    const footer = row.locator('[data-slot="user-message-footer"]')
+    await row.locator('[data-slot="user-message-text"]').hover()
+    await expect(footer).toHaveCSS("opacity", "1")
+    await expect(footer.getByRole("button", { name: "Copy message", exact: true })).toBeVisible()
+    await expect(footer.getByRole("button", { name: /^(Revert to here|Undo)$/ })).toHaveCount(0)
+    await expect(footer.getByRole("button", { name: "Fork from here", exact: true })).toHaveCount(0)
   })
 })
 

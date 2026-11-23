@@ -1,8 +1,5 @@
-type MessageTimeVariant = "menu" | "reply"
-
 // Names a moment's day relatively: Today and Yesterday, then the date this year, then the date with its year.
-// The reply variant keeps a space between the date and the clock; the menu keeps its existing comma.
-export function messageTime(time: number, locale: string, variant: MessageTimeVariant) {
+export function messageTime(time: number, locale: string) {
   const date = new Date(time)
   const now = new Date()
   const midnight = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime()
@@ -13,31 +10,17 @@ export function messageTime(time: number, locale: string, variant: MessageTimeVa
     const day = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-days, "day")
     const label = `${day[0]?.toLocaleUpperCase(locale)}${day.slice(1)}`
 
-    if (variant === "reply") return days === 0 ? clock : `${label} ${clock}`
-
-    return `${label}, ${clock}`
+    return days === 0 ? clock : `${label} ${clock}`
   }
 
   const sameYear = date.getFullYear() === now.getFullYear()
 
-  if (variant === "reply") {
-    const day = new Intl.DateTimeFormat(
-      locale,
-      sameYear ? { month: "short", day: "numeric" } : { dateStyle: "medium" },
-    ).format(date)
+  const day = new Intl.DateTimeFormat(
+    locale,
+    sameYear ? { month: "short", day: "numeric" } : { dateStyle: "medium" },
+  ).format(date)
 
-    return `${day} ${clock}`
-  }
-
-  if (sameYear)
-    return new Intl.DateTimeFormat(locale, {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(date)
-
-  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(date)
+  return `${day} ${clock}`
 }
 
 export function messageTimeDetail(time: number, locale: string) {

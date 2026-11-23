@@ -5,12 +5,12 @@ import type { TimelineRow } from "./timeline-row"
 /** A user message's place in a run of consecutive user messages: joined to the one above, below, or both. */
 export type UserRun = { above: boolean; below: boolean }
 
-/** What a user message brings to a run: its delivery, the agent and model its meta line names, and its surfaces. */
+/** What a user message brings to a run: its delivery, the agent and model its footer names, and its surfaces. */
 export type UserRunMember = {
   kind: "sent" | "pending"
   agent: string
   model: SessionMessageAssistant["model"]
-  /** It has a text bubble, the surface that carries a run's meta line. */
+  /** It has a text bubble, the surface that carries a run's footer. */
   text: boolean
   /** Attachments sit above its bubble. */
   attachments: boolean
@@ -21,7 +21,7 @@ export const userRunSpring = { omega: (2 * Math.PI) / 0.4, zeta: 1 }
 
 /**
  * Like the iOS app's grouped corners, consecutive user messages with nothing but turn gaps between them read as
- * one block under a single meta line. Text bubbles with the same agent and model join, and steers waiting for
+ * one block with shared corners. Text bubbles with the same agent and model join, and steers waiting for
  * delivery group the same way, but never with a sent message. An agent, model, location or compaction boundary
  * between them ends the run even when the timeline hides its notice.
  */

@@ -123,7 +123,7 @@ describe("userMessageRuns", () => {
     expect(runs(messages, {}, "quiet")).toEqual({ msg_1: alone, msg_3: alone })
   })
 
-  test("only text bubbles join; attachments keep their own gap and the text above keeps its meta line", () => {
+  test("only text bubbles join; attachments keep their own gap and the text above keeps its footer", () => {
     expect(
       runs([user("msg_1", 1), user("msg_2", 2), user("msg_3", 3), user("msg_4", 4)], {
         msg_2: { text: false, attachments: true },

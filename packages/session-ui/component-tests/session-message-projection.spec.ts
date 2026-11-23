@@ -1,5 +1,11 @@
 import { expect, story } from "../../stories/playwright/story"
 
+declare global {
+  interface Window {
+    __growPointer?: Promise<string>
+  }
+}
+
 story("reveals turn details from the agent icon", async ({ mount, page }) => {
   const timeline = await mount("current-session-timeline-rows--response-speed", { args: { steered: true } })
   const reply = timeline.locator('[data-component="text-part"]').filter({ hasText: "The timeline checks passed." })
@@ -132,288 +138,270 @@ story.describe("response footer", () => {
   })
 })
 
-story.describe("message actions menu", () => {
+story.describe("user message footer", () => {
   story.use({ timezoneId: "UTC" })
 
-  story(
-    "opens from a chevron in the bubble with the send time and the actions the message can take",
-    async ({ mount, page }) => {
-      const timeline = await mount("current-prompt-message--pending")
-      const chevron = timeline.locator('[data-slot="user-message-menu"]')
-      const more = timeline.getByRole("button", { name: "More actions", exact: true })
-      const fork = page.getByRole("menuitem", { name: "Fork from here", exact: true })
-      const copy = page.getByRole("menuitem", { name: "Copy message", exact: true })
-      const revert = page.getByRole("menuitem", { name: "Revert to here", exact: true })
-      const remove = page.getByRole("menuitem", { name: "Delete", exact: true })
+  story("reveals the footer on hover with the send time and the actions the message can take", async ({
+    mount,
+    page,
+  }) => {
+    const timeline = await mount("current-prompt-message--pending")
+    const message = timeline.locator('[data-component="user-message"]')
+    await timeline.getByLabel("Delivery state").selectOption("delivered")
+    await page.mouse.move(0, 0)
 
-      // The meta line keeps agent and model; the time lives in the menu.
-      await expect(timeline.locator('[data-slot="user-message-meta"] time')).toHaveCount(0)
+    const footer = message.locator('[data-slot="user-message-footer"]')
+    const time = footer.locator('[data-slot="user-message-time"]')
+    const agent = footer.locator('[data-slot="user-message-agent"]')
+    const fork = footer.getByRole("button", { name: "Fork from here", exact: true })
+    const copy = footer.getByRole("button", { name: "Copy message", exact: true })
+    const revert = footer.getByRole("button", { name: "Revert to here", exact: true })
 
-      const bubble = timeline.locator('[data-slot="user-message-text"]')
-      await timeline.getByLabel("Delivery state").selectOption("delivered")
-      await page.mouse.move(0, 0)
-      await expect(chevron).toHaveCSS("opacity", "0")
-      await bubble.hover()
-      await expect(chevron).toHaveCSS("opacity", "1")
-      await more.click()
-      const menu = page.getByRole("menu")
-      await expect(menu.locator("time")).toHaveText("Jan 1, 2025, 12:00 AM")
-      await expect(fork).toBeEnabled()
-      await expect(copy).toBeEnabled()
-      await expect(revert).toBeEnabled()
-      // An open menu keeps its chevron in view after the pointer leaves the message.
-      await page.mouse.move(0, 0)
-      await expect(chevron).toHaveCSS("opacity", "1")
-      await page.keyboard.press("Escape")
-      await expect(menu).toBeHidden()
-      // The menu hands focus back without a ring, so the chevron hides once the pointer is away.
-      await expect(more).toBeFocused()
-      await expect(chevron).toHaveCSS("opacity", "0")
+    await expect(footer).toHaveCSS("opacity", "0")
+    await expect(footer).toHaveCSS("pointer-events", "none")
+    await message.hover()
+    await expect(footer).toHaveCSS("opacity", "1")
+    await expect(footer).toHaveCSS("pointer-events", "auto")
+    await expect(timeline.locator('[data-slot="user-message-menu"]')).toHaveCount(0)
+    await expect(timeline.getByRole("button", { name: "More actions", exact: true })).toHaveCount(0)
+    await expect(time).toHaveText("Jan 1, 2025 12:00 AM")
+    await expect(time).toHaveAttribute("datetime", "2025-01-01T00:00:00.000Z")
 
-      // A pending steer is queued or deleted rather than reverted, and has no history to fork; a message without text has
-      // nothing to copy.
-      await timeline.getByLabel("Delivery state").selectOption("steering")
-      await timeline.getByLabel("Prompt text", { exact: true }).uncheck()
-      // Without a bubble, the chevron sits in the footer and shows while the message is hovered.
-      await timeline.locator('[data-component="user-message"]').hover()
-      await more.click()
-      await expect(page.getByRole("menuitem", { name: "Move to queue", exact: true })).toBeEnabled()
-      await expect(fork).toHaveCount(0)
-      await expect(copy).toHaveAttribute("aria-disabled", "true")
-      await expect(revert).toHaveCount(0)
-      await expect(remove).toBeEnabled()
-      await page.keyboard.press("Escape")
+    const boxes = await Promise.all(
+      [time, agent, fork, copy, revert].map((item) => item.boundingBox()),
+    )
 
-      await timeline.getByLabel("Prompt text", { exact: true }).check()
-      await timeline.getByLabel("Delivery state").selectOption("delivered")
-      await page.evaluate(() => document.fonts.ready.then(() => undefined))
+    if (boxes.some((box) => !box)) throw new Error("Footer geometry is unavailable")
 
-      for (const width of [1000, 390]) {
-        await page.setViewportSize({ width, height: 844 })
-        await bubble.hover()
-        const box = await bubble.boundingBox()
-        const trigger = await more.boundingBox()
-        const lineHeight = await bubble.evaluate((element) => parseFloat(getComputedStyle(element).lineHeight))
+    for (let index = 1; index < boxes.length; index += 1) {
+      expect(boxes[index]!.x).toBeGreaterThan(boxes[index - 1]!.x)
+    }
 
-        if (!box || !trigger) throw new Error("Message geometry is unavailable")
-        // Pinned to the bubble's top trailing corner, centered on its first line, as far from the side as from the top.
-        expect(Math.abs(box.y + 8 + lineHeight / 2 - trigger.y - trigger.height / 2)).toBeLessThan(1)
-        expect(Math.abs(box.x + box.width - trigger.x - trigger.width - (trigger.y - box.y))).toBeLessThan(1)
-      }
-    },
-  )
+    const [agentColor, copyColor] = await Promise.all([
+      agent.evaluate((element) => getComputedStyle(element).color),
+      copy.evaluate((element) => getComputedStyle(element).color),
+    ])
 
-  story("opens upward, 4px from the chevron, with its trailing edge on the chevron's", async ({ mount, page }) => {
+    expect(agentColor).toBe(copyColor)
+
+    await time.hover()
+    const timeTip = page.getByRole("tooltip").filter({ hasText: "Wednesday" })
+    await expect(timeTip).toBeVisible()
+    await expect(timeTip).toContainText("January 1, 2025")
+    await expect(timeTip).toContainText("12:00:00")
+
+    await agent.hover()
+    const details = page.getByRole("tooltip").filter({ hasText: "Build" })
+    await expect(details).toBeVisible()
+    await expect(details).toContainText("Claude Sonnet 4")
+    await expect(details).toContainText("Balanced")
+
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+    await page.clock.install()
+    await copy.click()
+    await expect(footer.getByRole("button", { name: "Copied", exact: true })).toBeVisible()
+    await page.clock.runFor(2_000)
+    await expect(copy).toBeVisible()
+  })
+
+  story("names the newest prompt's revert Undo and earlier ones Revert to here", async ({ mount }) => {
     const timeline = await mount("current-session-timeline-rows--prompt-runs")
     await timeline.getByRole("button", { name: "Send next", exact: true }).click()
-    const message = timeline.locator('[data-component="user-message"]').first()
-    await message.locator('[data-slot="user-message-text"]').hover()
-    const more = message.getByRole("button", { name: "More actions", exact: true })
-    // An open menu hides the rest of the page from the accessibility tree, so measure the trigger first.
-    const trigger = await more.boundingBox()
-    await more.click()
-    const menu = page.locator('[data-component="menu-v2-content"]')
-    await expect(menu).toBeVisible()
-    const box = await menu.boundingBox()
+    const messages = timeline.locator('[data-component="user-message"]')
+    await expect(messages).toHaveCount(2)
 
-    if (!trigger || !box) throw new Error("Menu geometry is unavailable")
-    expect(Math.abs(trigger.y - box.y - box.height - 4)).toBeLessThan(1)
-    expect(Math.abs(trigger.x + trigger.width - box.x - box.width)).toBeLessThan(1)
+    const first = messages.nth(0)
+    const second = messages.nth(1)
+
+    await expect(first.getByRole("button", { name: "Revert to here", exact: true })).toBeVisible()
+    await expect(second.getByRole("button", { name: "Undo", exact: true })).toBeVisible()
+    await expect(first.getByRole("button", { name: "Undo", exact: true })).toHaveCount(0)
+    await expect(second.getByRole("button", { name: "Revert to here", exact: true })).toHaveCount(0)
   })
 })
 
-story(
-  "fades the footer and chevron out once, without flicker, as an outside click closes the menu",
-  async ({ mount, page }) => {
-    // The timeline keeps a run's meta line shown while one of its menus is open, so mount it rather than a bare message.
-    const timeline = await mount("current-session-timeline-rows--prompt-runs")
-    const message = timeline.locator('[data-component="user-message"]').first()
+story("shows only the actions each delivery state allows", async ({ mount }) => {
+  const timeline = await mount("current-prompt-message--pending")
+  const message = timeline.locator('[data-component="user-message"]')
+  const bubble = message.locator('[data-slot="user-message-text"]')
+  const footer = timeline.locator('[data-slot="user-message-footer"]')
+  const button = (name: string) => footer.getByRole("button", { name, exact: true })
+  const pending = footer.locator('[data-slot="user-message-pending"]')
 
-    await message.locator('[data-slot="user-message-text"]').hover()
-    await message.getByRole("button", { name: "More actions", exact: true }).click()
-    await expect(page.getByRole("menu")).toBeVisible()
-    await page.mouse.move(0, 0)
+  const cases = [
+    {
+      status: "starting",
+      waiting: false,
+      present: ["Move to queue", "Copy message", "Delete"],
+      absent: ["Fork from here", "Revert to here", "Undo"],
+    },
+    {
+      status: "steering",
+      waiting: true,
+      present: ["Move to queue", "Copy message", "Delete"],
+      absent: ["Fork from here", "Revert to here", "Undo"],
+    },
+    {
+      status: "stranded",
+      waiting: true,
+      present: ["Move to queue", "Copy message", "Delete"],
+      absent: ["Fork from here", "Revert to here", "Undo"],
+    },
+    {
+      status: "sending",
+      waiting: true,
+      present: ["Copy message"],
+      absent: ["Move to queue", "Delete", "Fork from here", "Revert to here", "Undo"],
+    },
+    {
+      status: "queued",
+      waiting: false,
+      present: ["Fork from here", "Copy message", "Revert to here"],
+      absent: ["Move to queue", "Delete", "Undo"],
+    },
+    {
+      status: "delivered",
+      waiting: false,
+      present: ["Fork from here", "Copy message", "Revert to here"],
+      absent: ["Move to queue", "Delete", "Undo"],
+    },
+  ] as const
 
-    // Kobalte drops the expanded state a task before it returns focus to the trigger, so record every frame from the
-    // click until well after the menu has gone rather than the settled state. The first sample is taken now: the click
-    // can land and close the menu before the next frame.
-    const frames = await message.evaluateHandle((element) => {
-      const slots = ["user-message-copy-wrapper", "user-message-menu"]
-      const samples = slots.map((): number[] => [])
-      const closed = { frames: 0 }
+  for (const item of cases) {
+    await timeline.getByLabel("Delivery state").selectOption(item.status)
+    await bubble.hover()
+    await expect(footer).toHaveCSS("opacity", "1")
+    await expect(pending).toHaveCount(item.waiting ? 1 : 0)
 
-      const done = new Promise<number[][]>((resolve) => {
-        const tick = () => {
-          slots.forEach((slot, index) => {
-            const target = element.querySelector(`[data-slot="${slot}"]`)
-            samples[index]!.push(target ? parseFloat(getComputedStyle(target).opacity) : 0)
-          })
+    for (const name of item.present) await expect(button(name)).toBeVisible()
 
-          if (!document.querySelector('[role="menu"]')) closed.frames += 1
+    for (const name of item.absent) await expect(button(name)).toHaveCount(0)
+  }
+})
 
-          if (closed.frames < 30) return requestAnimationFrame(tick)
+story("shows a Pending footer for an attachment-only sending message", async ({ mount }) => {
+  const timeline = await mount("current-prompt-message--sending-attachment")
+  const message = timeline.locator('[data-component="user-message"]')
+  const footer = timeline.locator('[data-slot="user-message-footer"]')
 
-          resolve(samples)
-        }
-
-        tick()
-      })
-
-      return { done }
-    })
-
-    await page.mouse.click(0, 0)
-    const samples = await frames.evaluate((sampler) => sampler.done)
-
-    // Each starts shown and only ever fades: no frame comes back up after a lower one.
-    samples.forEach((opacities) => {
-      expect(opacities[0]).toBe(1)
-      expect(opacities.every((value, index) => index === 0 || value <= opacities[index - 1]!)).toBe(true)
-    })
-  },
-)
+  await expect(footer).toHaveCSS("opacity", "0")
+  await message.hover()
+  await expect(footer).toHaveCSS("opacity", "1")
+  await expect(footer.locator('[data-slot="user-message-pending"]')).toHaveText("Pending")
+  await expect(footer.getByRole("button", { name: "Copy message", exact: true })).toBeDisabled()
+  await expect(
+    footer.getByRole("button", { name: /^(Move to queue|Delete|Fork from here|Revert to here|Undo)$/ }),
+  ).toHaveCount(0)
+})
 
 story("keeps pending steer actions usable after a request fails", async ({ mount, page }) => {
   const timeline = await mount("current-prompt-message--pending")
-  const more = timeline.getByRole("button", { name: "More actions", exact: true })
-  const queue = page.getByRole("menuitem", { name: "Move to queue", exact: true })
-  const remove = page.getByRole("menuitem", { name: "Delete", exact: true })
+  const message = timeline.locator('[data-component="user-message"]')
+  const footer = timeline.locator('[data-slot="user-message-footer"]')
+  const queue = footer.getByRole("button", { name: "Move to queue", exact: true })
+  const remove = footer.getByRole("button", { name: "Delete", exact: true })
   const failures = timeline.getByLabel("Failed actions")
-  const bubble = timeline.locator('[data-slot="user-message-text"]')
-
-  // The chevron shows only while its bubble is hovered, and a closing menu leaves the pointer over the menu's place.
-  const open = async () => {
-    await bubble.hover()
-    await more.click()
-  }
 
   await timeline.getByLabel("Actions fail").check()
-  await open()
+  await message.locator('[data-slot="user-message-text"]').hover()
   await queue.click()
   await expect(failures).toHaveText("1")
-  await open()
   await expect(queue).toBeEnabled()
   await expect(remove).toBeEnabled()
   await remove.click()
   await expect(failures).toHaveText("2")
-  await open()
   await expect(remove).toBeEnabled()
 })
 
-story("shows a run's meta line while the pointer is anywhere in the run, gaps included", async ({ mount, page }) => {
+story("reveals each run bubble's footer on its own hover", async ({ mount, page }) => {
   const timeline = await mount("current-session-timeline-rows--prompt-runs")
   const send = timeline.getByRole("button", { name: "Send next", exact: true })
   await send.click()
   await send.click()
-  const bubbles = timeline.locator('[data-slot="user-message-text"]')
-  await expect(bubbles).toHaveCount(3)
 
-  const footer = timeline
-    .locator('[data-component="user-message"]')
-    .last()
-    .locator('[data-slot="user-message-copy-wrapper"]')
+  const messages = timeline.locator('[data-component="user-message"]')
+  const footers = timeline.locator('[data-slot="user-message-footer"]')
+  await expect(footers).toHaveCount(3)
 
-  await page.mouse.move(0, 0)
-  await expect(footer).toHaveCSS("opacity", "0")
-  await bubbles.first().hover()
-  await expect(footer).toHaveCSS("opacity", "1")
-
-  // The 4px gap between two bubbles belongs to the run, so crossing it keeps the line.
-  const above = await bubbles.nth(0).boundingBox()
-  const below = await bubbles.nth(1).boundingBox()
-
-  if (!above || !below) throw new Error("Run geometry is unavailable")
-  await page.mouse.move(below.x + below.width / 2, (above.y + above.height + below.y) / 2)
-  await expect(footer).toHaveCSS("opacity", "1")
-  await page.mouse.move(0, 0)
-  await expect(footer).toHaveCSS("opacity", "0")
+  for (let index = 0; index < 3; index += 1) {
+    await expect(footers.nth(index)).toHaveCSS("opacity", "0")
+    await messages.nth(index).locator('[data-slot="user-message-text"]').hover()
+    await expect(footers.nth(index)).toHaveCSS("opacity", "1")
+    await page.mouse.move(0, 0)
+    await expect(footers.nth(index)).toHaveCSS("opacity", "0")
+  }
 })
 
-story("names the newest prompt's revert Undo and earlier ones Revert to here", async ({ mount, page }) => {
+story("names the newest prompt's revert Undo and earlier ones Revert to here", async ({ mount }) => {
   const timeline = await mount("current-session-timeline-rows--prompt-runs")
   await timeline.getByRole("button", { name: "Send next", exact: true }).click()
   const messages = timeline.locator('[data-component="user-message"]')
   await expect(messages).toHaveCount(2)
 
-  for (const [index, label] of [
-    [1, "Undo"],
-    [0, "Revert to here"],
-  ] as const) {
-    await messages.nth(index).locator('[data-slot="user-message-text"]').hover()
-    await messages.nth(index).getByRole("button", { name: "More actions", exact: true }).click()
-    await expect(page.getByRole("menuitem", { name: label, exact: true })).toBeVisible()
-    await expect(page.getByRole("menuitem", { name: index ? "Revert to here" : "Undo", exact: true })).toHaveCount(0)
-    await page.keyboard.press("Escape")
-  }
+  const first = messages.nth(0)
+  const second = messages.nth(1)
+
+  await first.locator('[data-slot="user-message-text"]').hover()
+  await expect(first.locator('[data-slot="user-message-footer"]')).toHaveCSS("opacity", "1")
+  await expect(first.getByRole("button", { name: "Revert to here", exact: true })).toBeVisible()
+  await second.locator('[data-slot="user-message-text"]').hover()
+  await expect(second.locator('[data-slot="user-message-footer"]')).toHaveCSS("opacity", "1")
+  await expect(second.getByRole("button", { name: "Undo", exact: true })).toBeVisible()
+  await expect(first.getByRole("button", { name: "Undo", exact: true })).toHaveCount(0)
+  await expect(second.getByRole("button", { name: "Revert to here", exact: true })).toHaveCount(0)
 })
 
 story("drops a pending footer at once on delivery with and without hover", async ({ mount, page }) => {
   const timeline = await mount("current-prompt-message--pending")
   const message = timeline.locator('[data-component="user-message"]')
-  const footer = timeline.locator('[data-slot="user-message-copy-wrapper"]')
-  const pending = timeline.locator('[data-slot="user-message-transition"]:has([data-slot="user-message-pending"])')
+  const footer = message.locator('[data-slot="user-message-footer"]')
+  const pending = footer.locator('[data-slot="user-message-pending"]')
+  const time = footer.locator('[data-slot="user-message-time"]')
+  const bubble = timeline.locator('[data-slot="user-message-text"]')
 
   await page.mouse.move(0, 0)
   await expect(footer).toHaveCSS("height", "20px")
   await expect(footer).toHaveCSS("margin-top", "8px")
-  const bubble = timeline.locator('[data-slot="user-message-text"]')
-  const labels = timeline.locator('[data-slot="user-message-meta-label"]')
 
   for (const hover of [true, false]) {
     await timeline.getByLabel("Delivery state").selectOption("steering")
-    await expect(footer).toHaveCSS("opacity", "1")
-    await expect(pending).toHaveCSS("opacity", "1")
-    const before = await pending.boundingBox()
-
-    if (!before) throw new Error("Pending footer geometry is unavailable")
 
     if (hover) await bubble.hover()
 
     if (!hover) await page.mouse.move(0, 0)
-    // Pending closes the line, and the agent and model before it show only on hover.
-    await expect(labels).toHaveCSS("opacity", hover ? "1" : "0")
-    const line = await footer.boundingBox()
 
-    if (!line) throw new Error("Pending footer geometry is unavailable")
-    expect(Math.abs(before.x + before.width - line.x - line.width)).toBeLessThan(1)
+    await expect(footer).toHaveCSS("opacity", hover ? "1" : "0")
+    await expect(pending).toHaveText("Pending")
+
     await timeline.getByLabel("Delivery state").selectOption("delivered")
 
-    // The first frame after delivery already shows the delivered footer: nothing shrinks or fades out.
-    const after = await message.evaluate((element) => {
-      const pending = element.querySelector(
-        '[data-slot="user-message-transition"]:has([data-slot="user-message-pending"])',
-      )!
+    if (hover) await bubble.hover()
 
-      const footer = element.querySelector('[data-slot="user-message-copy-wrapper"]')!
+    if (!hover) await page.mouse.move(0, 0)
 
-      return {
-        animations: [...pending.getAnimations(), ...footer.getAnimations()].length,
-        width: pending.getBoundingClientRect().width,
-        opacity: Number(getComputedStyle(pending).opacity),
-        footer: Number(getComputedStyle(footer).opacity),
-      }
-    })
-
-    expect(after).toEqual({ animations: 0, width: 0, opacity: 0, footer: hover ? 1 : 0 })
-    expect(before.width).toBeGreaterThan(0)
-
-    await expect(pending).toBeHidden()
+    await expect(pending).toHaveCount(0)
+    await expect(time).toHaveCount(1)
     await expect(footer).toHaveCSS("opacity", hover ? "1" : "0")
+    await expect(message).not.toHaveAttribute("data-delivering")
+    expect(await footer.evaluate((element) => element.getAnimations().length)).toBe(0)
   }
 
   await page.emulateMedia({ reducedMotion: "reduce" })
   await expect(page.locator("html")).toHaveAttribute("data-motion", "reduce")
   await timeline.getByLabel("Delivery state").selectOption("steering")
   await timeline.getByLabel("Delivery state").selectOption("delivered")
-  await expect(footer).toHaveCSS("transition-duration", "0s")
-  await expect(pending).toBeHidden()
-  await expect(footer).toHaveCSS("opacity", "0")
+  await expect(pending).toHaveCount(0)
+  await expect(time).toHaveCount(1)
+  expect(await footer.evaluate((element) => element.getAnimations().length)).toBe(0)
 })
 
 story("marks pending metadata without badging delivered, starting, or queued prompts", async ({ mount, page }) => {
   const timeline = await mount("current-prompt-message--pending")
-  const indicator = timeline.locator('[data-slot="user-message-meta"] [data-slot="user-message-pending"]')
-  const text = timeline.locator('[data-slot="user-message-text"]')
+  // The controlled message renders last; Grouped prompts adds an earlier one above it.
+  const message = timeline.locator('[data-component="user-message"]').last()
+  const footer = message.locator('[data-slot="user-message-footer"]')
+  const indicator = footer.locator('[data-slot="user-message-pending"]')
+  const text = message.locator('[data-slot="user-message-text"]')
 
   for (const status of ["steering", "stranded", "sending", "starting", "queued", "delivered"]) {
     await timeline.getByLabel("Delivery state").selectOption(status)
@@ -421,12 +409,9 @@ story("marks pending metadata without badging delivered, starting, or queued pro
 
     if (pending) await expect(indicator).toBeVisible()
 
-    if (!pending) await expect(indicator).toBeHidden()
+    if (!pending) await expect(indicator).toHaveCount(0)
 
-    // A prompt still sending has no server row, so it offers no action until the server has it.
-    await expect(timeline.locator('[data-slot="user-message-menu"]')).toHaveCount(status === "sending" ? 0 : 1)
-
-    const colors = await timeline.evaluate((element, pending) => {
+    const colors = await message.evaluate((element, pending) => {
       const probe = document.createElement("span")
       probe.style.color = `var(--v2-text-text-${pending ? "muted" : "base"})`
       probe.style.backgroundColor = `var(--v2-background-bg-layer-${pending ? "01" : "02"})`
@@ -441,32 +426,24 @@ story("marks pending metadata without badging delivered, starting, or queued pro
     await expect(text).toHaveCSS("background-color", colors.background)
   }
 
-  await text.hover()
-  await expect(timeline.locator('[data-slot="user-message-meta-item"]')).toHaveText([
-    "Build",
-    "Claude Sonnet 4",
-    "Balanced",
-  ])
-  const separator = timeline.locator('[data-slot="user-message-meta-label"] [data-slot="user-message-meta-separator"]')
-  await expect(separator).toHaveText("\u00B7")
-  await expect(timeline.locator('[data-slot="user-message-meta-label"]')).toHaveCSS("gap", "4px")
-
-  // A steer reads agent · model · Pending. Pending stays in view; the agent and model show on hover, as on any message.
-  await timeline.getByLabel("Delivery state").selectOption("steering")
-  await expect(timeline.locator('[data-slot="user-message-meta"]')).toHaveText(
-    /^Build\s*·\s*Claude Sonnet 4\s*Balanced\s*·\s*Pending$/,
-    { useInnerText: true },
+  await expect(timeline.locator('[data-slot="user-message-meta"]')).toHaveCount(0)
+  await expect(message.locator('[data-slot="user-message-agent"] .sr-only')).toHaveText(
+    "Build · Claude Sonnet 4 Balanced",
   )
-  await expect(timeline.locator('[data-slot="user-message-meta-label"]')).toHaveCSS("opacity", "1")
-  await page.mouse.move(0, 0)
-  await expect(timeline.locator('[data-slot="user-message-meta-label"]')).toHaveCSS("opacity", "0")
-  await expect(indicator).toBeVisible()
-  await timeline.getByLabel("Voice message", { exact: true }).check()
-  const voice = timeline.getByRole("img", { name: "Voice", exact: true })
-  await expect(voice).toBeVisible()
-  await expect(indicator).toBeVisible()
-  // The faded bubble already marks a steer as waiting, so Pending is plain text with no icon.
+
+  // A steer reads Pending in the footer; the agent and model stay in the icon's accessible details.
+  await timeline.getByLabel("Delivery state").selectOption("steering")
   await expect(indicator).toHaveText("Pending")
+  await expect(message.locator('[data-slot="user-message-agent"] .sr-only')).toHaveText(
+    "Build · Claude Sonnet 4 Balanced",
+  )
+
+  await timeline.getByLabel("Voice message", { exact: true }).check()
+  const voice = message.getByRole("img", { name: "Voice", exact: true })
+  await expect(voice).toBeVisible()
+  await message.locator('[data-slot="user-message-text"]').hover()
+  await expect(indicator).toBeVisible()
+  await expect(message.getByRole("button", { name: "Copy full message", exact: true })).toBeVisible()
   await expect(indicator.locator("svg")).toHaveCount(0)
 
   await expect(voice.locator("use")).toHaveAttribute("href", "#opencode-v2-icon-outline-wave-audio")
@@ -475,25 +452,177 @@ story("marks pending metadata without badging delivered, starting, or queued pro
   await expect(voice.locator('[data-slot="icon-svg"]')).toHaveCSS("width", "14px")
   await expect(voice.locator('[data-slot="icon-svg"]')).toHaveCSS("height", "14px")
 
-  await expect(timeline.locator('[data-slot="user-message-meta"]')).toHaveText(/Pending$/)
   await timeline.getByLabel("Grouped prompts", { exact: true }).check()
-  await expect(timeline.locator('[data-run-folded] [data-slot="user-message-copy-wrapper"]')).toBeHidden()
-  await expect(
-    timeline.locator('[data-component="user-message"]:not([data-run-folded]) [data-slot="user-message-pending"]'),
-  ).toBeVisible()
+  const groupedMessages = timeline.locator('[data-component="user-message"]')
+  const footers = timeline.locator('[data-slot="user-message-footer"]')
+  await expect(footers).toHaveCount(2)
+
+  for (let index = 0; index < 2; index += 1) {
+    await expect(footers.nth(index)).toHaveCSS("opacity", "0")
+    await groupedMessages.nth(index).locator('[data-slot="user-message-text"]').hover()
+    await expect(footers.nth(index)).toHaveCSS("opacity", "1")
+    await expect(footers.nth(index).locator('[data-slot="user-message-pending"]')).toHaveText("Pending")
+  }
+
   await expect(timeline.getByRole("img", { name: "Pending", exact: true })).toHaveCount(0)
   await timeline.getByLabel("Grouped prompts", { exact: true }).uncheck()
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(indicator).toBeVisible()
-  await expect(timeline.locator('[data-slot="user-message-meta-item"]')).toHaveCount(0)
+  await expect(timeline.locator('[data-slot="user-message-meta"]')).toHaveCount(0)
+  expect(await footer.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+
   await timeline.getByLabel("Prompt text", { exact: true }).uncheck()
   await expect(timeline.getByText("notes.json", { exact: true })).toBeVisible()
   await expect(indicator).toBeVisible()
-  // A steer without text offers its actions from a chevron in its footer.
-  await timeline.locator('[data-component="user-message"]').hover()
-  await timeline.getByRole("button", { name: "More actions", exact: true }).click()
-  await page.getByRole("menuitem", { name: "Move to queue", exact: true }).click()
-  await expect(indicator).toBeHidden()
+  await message.hover()
+  await message.getByRole("button", { name: "Move to queue", exact: true }).click()
+  await expect(footer).toHaveCount(0)
+})
+
+story("copies the display text and the full voice prompt from separate buttons", async ({ mount, page }) => {
+  const timeline = await mount("current-session-timeline-rows--voice-messages")
+  const row = timeline.locator('[data-timeline-row="UserMessage"][data-message-id="msg_user_voice"]')
+  const footer = row.locator('[data-slot="user-message-footer"]')
+  await expect(footer).toHaveCSS("opacity", "0")
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+  await page.clock.install()
+  await row.locator('[data-slot="user-message-text"]').hover()
+  await expect(footer).toHaveCSS("opacity", "1")
+
+  const copy = footer.getByRole("button", { name: "Copy message", exact: true })
+  const full = footer.getByRole("button", { name: "Copy full message", exact: true })
+
+  await expect(copy).toBeVisible()
+  await expect(full).toBeVisible()
+  await copy.click()
+  await expect(footer.getByRole("button", { name: "Copied", exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("Checking the upload test.")
+  await page.clock.runFor(2_000)
+  await expect(copy).toBeVisible()
+
+  await full.click()
+  await expect(footer.getByRole("button", { name: "Copied", exact: true })).toBeVisible()
+  const text = await page.evaluate(() => navigator.clipboard.readText())
+  expect(text).toContain('"instruction": "check the upload test"')
+  await expect(copy).toBeVisible()
+})
+
+story("keeps the previous pending footer when another steer joins the run", async ({ mount, page }) => {
+  const timeline = await mount("current-session-timeline-rows--prompt-runs")
+  const send = timeline.getByRole("button", { name: "Send next", exact: true })
+
+  for (let count = 0; count < 4; count += 1) await send.click()
+
+  const fourth = timeline.locator('[data-timeline-row="UserMessage"][data-message-id="msg_end_4"]')
+  await expect(fourth.locator('[data-slot="user-message-pending"]')).toHaveText("Pending")
+  await expect(timeline.locator('[data-timeline-grow]')).toHaveCount(0)
+
+  await page.evaluate(() => {
+    window.__growPointer = new Promise<string>((resolve) => {
+      let observer: MutationObserver | undefined
+
+      const find = (node: Node) => {
+        if (!(node instanceof HTMLElement)) return undefined
+
+        if (!node.hasAttribute("data-timeline-grow")) return undefined
+
+        if (node.getAttribute("data-timeline-row") !== "UserMessage") return undefined
+
+        if (node.dataset.messageId !== "msg_end_5") return undefined
+
+        return node
+      }
+
+      const inspect = (node: Node) => {
+        const found = find(node)
+
+        if (found) {
+          observer?.disconnect()
+          resolve(getComputedStyle(found).pointerEvents)
+
+          return true
+        }
+
+        if (node instanceof HTMLElement) {
+          for (const child of node.querySelectorAll<HTMLElement>('[data-timeline-grow]')) {
+            const nested = find(child)
+
+            if (!nested) continue
+
+            observer?.disconnect()
+            resolve(getComputedStyle(nested).pointerEvents)
+
+            return true
+          }
+        }
+
+        return false
+      }
+
+      observer = new MutationObserver((records) => {
+        for (const record of records) {
+          if (record.type === "attributes") {
+            if (inspect(record.target)) return
+
+            continue
+          }
+
+          for (const node of record.addedNodes) {
+            if (inspect(node)) return
+          }
+        }
+      })
+
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["data-timeline-grow"],
+        childList: true,
+        subtree: true,
+      })
+    })
+  })
+
+  await send.click()
+
+  const pointer = await page.evaluate(() => {
+    if (!window.__growPointer) throw new Error("Growth observer was not installed")
+
+    return window.__growPointer
+  })
+
+  expect(pointer).toBe("none")
+  await expect(timeline.locator('[data-timeline-grow]')).toHaveCount(0)
+
+  const fifth = timeline.locator('[data-timeline-row="UserMessage"][data-message-id="msg_end_5"]')
+  const fourthFooter = fourth.locator('[data-slot="user-message-footer"]')
+  const fifthFooter = fifth.locator('[data-slot="user-message-footer"]')
+  await fourth.locator('[data-slot="user-message-text"]').hover()
+  await expect(fourthFooter).toHaveCSS("opacity", "1")
+  const fourthBox = (await fourthFooter.boundingBox())!
+  await fifth.locator('[data-slot="user-message-text"]').hover()
+  await expect(fifthFooter).toHaveCSS("opacity", "1")
+  const fifthBubble = (await fifth.locator('[data-slot="user-message-text"]').boundingBox())!
+
+  expect(fourthBox.y + fourthBox.height).toBeLessThanOrEqual(fifthBubble.y)
+  await expect(fourthFooter.locator('[data-slot="user-message-pending"]')).toHaveText("Pending")
+  await expect(fifthFooter.locator('[data-slot="user-message-pending"]')).toHaveText("Pending")
+
+  const leftovers = await fifth.evaluate((row) => {
+    // SAFETY: the locator resolves a timeline row element, which is an HTMLElement.
+    const element = row as HTMLElement
+    // SAFETY: the row always renders its session-turn content wrapper before it is measured.
+    const content = element.firstElementChild as HTMLElement | null
+
+    return {
+      pointerEvents: element.style.pointerEvents,
+      height: element.style.height,
+      opacity: content?.style.opacity,
+      visibility: content?.style.visibility,
+      transform: content?.style.transform,
+    }
+  })
+
+  expect(leftovers).toEqual({ pointerEvents: "", height: "", opacity: "", visibility: "", transform: "" })
 })
 
 // Moved from packages/app/e2e/regression/session-timeline-collapse-state.spec.ts

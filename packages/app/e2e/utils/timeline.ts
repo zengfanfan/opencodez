@@ -1118,24 +1118,16 @@ function provider() {
   }
 }
 
-/** Hovers a user message, opens the chevron menu its bubble (or, without text, its footer) shows, and picks an action. */
+/** Clicks a user message's footer action, revealing the footer with the same hover it needs on desktop. */
 export async function chooseUserMessageAction(page: Page, row: Locator, name: string) {
-  await openUserMessageMenu(page, row)
-  await page.getByRole("menuitem", { name, exact: true }).click()
-}
-
-/** Hovers a user message, opens its chevron menu, and returns the open menu. */
-export async function openUserMessageMenu(page: Page, row: Locator) {
   const message = row.locator('[data-component="user-message"]')
   const bubble = message.locator('[data-slot="user-message-text"]')
+  const footer = row.locator('[data-slot="user-message-footer"]')
 
-  // The bubble renders with its message. Counted before the row mounts, it reads 0, and hovering the whole message
-  // misses the bubble, the only place that reveals a text message's chevron.
   await expect(message).toBeVisible()
 
   if ((await bubble.count()) > 0) await bubble.hover()
   else await message.hover()
-  await row.getByRole("button", { name: "More actions", exact: true }).click()
-
-  return page.getByRole("menu")
+  await expect(footer).toHaveCSS("opacity", "1")
+  await footer.getByRole("button", { name, exact: true }).click()
 }

@@ -113,7 +113,7 @@ export function shouldGrowUserMessage(state: SteerArrivalState, messageID: strin
 }
 
 /**
- * Whether a run's gaps and meta lines snap rather than spring: while a steer is landing or growing in, the growing row
+ * Whether a run's gaps and corners snap rather than spring: while a steer is landing or growing in, the growing row
  * moves the run, so springing as well would make the bubbles jump.
  */
 export function shouldSnapUserRun(state: SteerArrivalState) {

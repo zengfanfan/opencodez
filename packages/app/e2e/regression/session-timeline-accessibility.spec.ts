@@ -86,22 +86,23 @@ for (const visible of [false, true]) {
     const user = page.locator(`[data-timeline-row="UserMessage"][data-message-id="${userID}"]`)
     const assistant = page.locator(`[data-timeline-part-id="${renderedPartID("prt_agent_meta")}"]`)
     await user.scrollIntoViewIfNeeded()
-    await user.hover()
-    await page.screenshot({ path: testInfo.outputPath(`agents-${visible ? "on" : "off"}.png`) })
 
-    const userMeta = user.locator('[data-slot="user-message-meta"]')
+    const userAgent = user.locator('[data-slot="user-message-agent"]')
+    const userDetails = userAgent.locator(".sr-only")
     const assistantIcon = assistant.locator('[data-slot="text-part-agent"]')
     const assistantDetails = assistantIcon.locator(".sr-only")
 
+    await expect(userAgent).toBeVisible()
     await expect(assistantIcon).toBeVisible()
 
-    // A delivered message keeps its hidden Pending label in the DOM, so read only the rendered text.
     if (visible) {
-      await expect(userMeta).toContainText(/^Build\s*·/, { useInnerText: true })
+      await expect(userDetails).toContainText(/^Build\s*·/)
       await expect(assistantDetails).toContainText(/^Build/)
     } else {
-      await expect(userMeta).not.toContainText("Build")
+      await expect(userDetails).not.toContainText("Build")
       await expect(assistantDetails).not.toContainText("Build")
     }
+
+    await page.screenshot({ path: testInfo.outputPath(`agents-${visible ? "on" : "off"}.png`) })
   })
 }

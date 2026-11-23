@@ -8,7 +8,7 @@ story.describe("touch timeline", () => {
     expect(await page.evaluate(() => matchMedia("(hover: none)").matches)).toBe(true)
 
     for (const action of [
-      { slot: "user-message-menu", name: "More actions" },
+      { slot: "user-message-footer", name: "Copy message" },
       { slot: "text-part-copy-wrapper", name: "Copy response" },
     ]) {
       const actions = timeline.locator(`[data-slot="${action.slot}"]`)
@@ -18,9 +18,12 @@ story.describe("touch timeline", () => {
       await expect(actions.getByRole("button", { name: action.name, exact: true })).toBeVisible()
     }
 
-    // The user message meta still omits agent and model on mobile; the reply details are tooltips.
-    await expect(timeline.locator('[data-slot="user-message-meta-item"]')).toHaveCount(0)
-    await expect(timeline.locator('[data-slot="user-message-pending"]')).toBeHidden()
+    // The user footer keeps the agent details in a tooltip; the reply details are tooltips too.
+    const userAgent = timeline.locator('[data-slot="user-message-agent"]')
+    await expect(userAgent).toBeVisible()
+    await expect(userAgent.locator(".sr-only")).toContainText("Build")
+    await expect(timeline.locator('[data-slot="user-message-meta"]')).toHaveCount(0)
+    await expect(timeline.locator('[data-slot="user-message-pending"]')).toHaveCount(0)
 
     const completed = timeline.locator('[data-slot="text-part-completed-at"]')
     const icon = timeline.locator('[data-slot="text-part-agent"]')
@@ -54,46 +57,6 @@ story.describe("touch timeline", () => {
     }
   })
 
-  story("keeps the always-shown chevron clear of the prompt's text", async ({ mount }) => {
-    const timeline = await mount("current-prompt-message--pending")
-    await timeline.getByLabel("Delivery state").selectOption("delivered")
-    const bubble = timeline.locator('[data-slot="user-message-text"]')
-    await expect(bubble.getByRole("button", { name: "More actions", exact: true })).toBeVisible()
-
-    // Every rendered line box of the prompt, against the chevron's box: none may overlap.
-    const overlaps = await bubble.evaluate((element) => {
-      const menu = element.querySelector('[data-slot="user-message-menu"]')
-      const chevron = menu?.querySelector("button")?.getBoundingClientRect()
-
-      if (!menu || !chevron) throw new Error("The chevron is not rendered")
-
-      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
-        acceptNode: (node) => (menu.contains(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
-      })
-
-      const lines: DOMRect[] = []
-
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const range = document.createRange()
-        range.selectNodeContents(node)
-        lines.push(...range.getClientRects())
-      }
-
-      if (lines.length === 0) throw new Error("The prompt has no text")
-
-      return lines.filter(
-        (line) =>
-          line.width > 0 &&
-          line.left < chevron.right &&
-          line.right > chevron.left &&
-          line.top < chevron.bottom &&
-          line.bottom > chevron.top,
-      ).length
-    })
-
-    expect(overlaps).toBe(0)
-  })
-
   story("keeps shell copy visible without hover", async ({ mount }) => {
     const timeline = await mount("current-session-terminal-work--expanded-shell")
     const copy = timeline.locator('[data-slot="bash-copy"]')
@@ -115,30 +78,63 @@ story.describe("touch timeline", () => {
     await expect(copy).toHaveCSS("pointer-events", "auto")
   })
 
-  story("keeps fenced code copy visible without hover", async ({ mount }) => {
-    const markdown = await mount("components-markdown--complete-response")
-    const code = markdown.locator('[data-component="markdown-code"]').filter({ hasText: "export const value = 42" })
-    await expect(code).toHaveCount(1)
-    await expect(code.locator('[data-slot="markdown-copy-button"]')).toHaveCSS("opacity", "1")
+  story("closes the previous user agent tooltip when another opens", async ({ mount, page }) => {
+    const timeline = await mount("current-session-timeline-rows--response-speed", { args: { steered: true } })
+    const first = timeline.locator('[data-timeline-row="UserMessage"][data-message-id="msg_speed_user"]')
+    const second = timeline.locator('[data-timeline-row="UserMessage"][data-message-id="msg_speed_steer"]')
+    const firstIcon = first.locator('[data-slot="user-message-agent"]')
+    const secondIcon = second.locator('[data-slot="user-message-agent"]')
+    const firstTrigger = firstIcon.locator("..")
+    const secondTrigger = secondIcon.locator("..")
+
+    await expect(firstTrigger).toHaveAttribute("data-component", "tooltip-v2-trigger")
+    await firstIcon.tap()
+    await expect(firstTrigger).toHaveAttribute("aria-describedby", /.+/)
+    const firstId = await firstTrigger.getAttribute("aria-describedby")
+
+    if (!firstId) throw new Error("The first agent tooltip did not open")
+    await expect(page.locator(`[role="tooltip"][id="${firstId}"]`)).toBeVisible()
+
+    await secondIcon.tap()
+    await expect(secondTrigger).toHaveAttribute("aria-describedby", /.+/)
+    const secondId = await secondTrigger.getAttribute("aria-describedby")
+
+    if (!secondId) throw new Error("The second agent tooltip did not open")
+    await expect(page.locator(`[role="tooltip"][id="${secondId}"]`)).toBeVisible()
+    await expect(firstTrigger).not.toHaveAttribute("aria-describedby")
   })
 })
 
-story("desktop user message actions still appear on hover and keyboard focus", async ({ mount, page }) => {
-  const timeline = await mount("current-session-timeline-rows--conversation", { args: { scenario: "interruption" } })
+story("desktop user message footer waits for hover or keyboard focus and opens details", async ({ mount, page }) => {
+  const timeline = await mount("current-prompt-message--pending")
+  await timeline.getByLabel("Delivery state").selectOption("delivered")
   expect(await page.evaluate(() => matchMedia("(hover: hover)").matches)).toBe(true)
 
-  const actions = timeline.locator('[data-slot="user-message-menu"]')
-  await expect(actions).toHaveCount(1)
-  await expect(actions).toHaveCSS("opacity", "0")
-  await expect(actions).toHaveCSS("pointer-events", "none")
-  await actions.locator("..").hover()
-  await expect(actions).toHaveCSS("opacity", "1")
-  await expect(actions).toHaveCSS("pointer-events", "auto")
+  const message = timeline.locator('[data-component="user-message"]')
+  const footer = timeline.locator('[data-slot="user-message-footer"]')
+  const time = footer.locator('[data-slot="user-message-time"]')
+  const agent = footer.locator('[data-slot="user-message-agent"]')
+  const fork = footer.getByRole("button", { name: "Fork from here", exact: true })
+  await expect(footer).toHaveCount(1)
+  await expect(footer).toHaveCSS("opacity", "0")
+  await expect(footer).toHaveCSS("pointer-events", "none")
+  await message.hover()
+  await expect(footer).toHaveCSS("opacity", "1")
+  await expect(footer).toHaveCSS("pointer-events", "auto")
+  await expect(timeline.locator('[data-slot="user-message-menu"]')).toHaveCount(0)
   await page.mouse.move(0, 0)
-  await expect(actions).toHaveCSS("opacity", "0")
-  await actions.getByRole("button", { name: "More actions", exact: true }).focus()
-  await expect(actions).toHaveCSS("opacity", "1")
-  await expect(actions).toHaveCSS("pointer-events", "auto")
+  await expect(footer).toHaveCSS("opacity", "0")
+
+  await page.keyboard.press("Tab")
+  await fork.focus()
+  await expect(footer).toHaveCSS("opacity", "1")
+  await page.keyboard.press("Shift+Tab")
+  await expect(agent).toBeFocused()
+  await expect(page.getByRole("tooltip").filter({ hasText: "Build" })).toBeVisible()
+
+  await page.keyboard.press("Shift+Tab")
+  await expect(time).toBeFocused()
+  await expect(page.getByRole("tooltip").filter({ hasText: "Wednesday" })).toBeVisible()
 })
 
 story("desktop response details wait for the agent icon", async ({ mount, page }) => {

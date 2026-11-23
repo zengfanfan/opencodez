@@ -230,6 +230,11 @@ test("answers /btw in the side panel without admitting a prompt", async ({ page 
   await expect(panel.getByRole("button", { name: "Copy answer", exact: true })).toHaveCount(1)
   await expect(panel.locator('[data-slot="text-part-meta"]')).toContainText(/\d+s/)
   const feedback = page.getByRole("tooltip", { name: "Copied", exact: true })
+  const btwUser = panel.locator('[data-component="user-message"]')
+  const btwCopy = btwUser.locator('[data-slot="user-message-copy-wrapper"]')
+  await page.mouse.move(0, 0)
+  await expect(btwCopy).toHaveCSS("opacity", "0")
+  await expect(btwCopy).toHaveCSS("pointer-events", "none")
 
   for (const [component, label] of [
     ["user-message", "Copy message"],
