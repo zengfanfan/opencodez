@@ -21,6 +21,7 @@ import { TabsProvider } from "@/shell/tabs/tabs"
 import { ErrorPage } from "@/shell/errors/error"
 import { AppRoutes, File, preloadRoute } from "@/shell/routes/routes"
 import { PluginRoot } from "@/runtime/plugin/root"
+import { TaskbarBadge } from "@/shell/notifications/taskbar-badge"
 
 export { preloadRoute }
 
@@ -104,6 +105,7 @@ export function AppInterface(props: {
               {props.children}
               {rootProps.children}
               <VoiceOverlay />
+              <TaskbarBadge />
             </VoiceProvider>
           </CommandProvider>
         </ProjectIconsProvider>

@@ -13,12 +13,12 @@ import type { createNotificationCoordinator } from "@/shell/notifications/coordi
 import { ServerConnection } from "@/runtime/server/registry"
 import { sessionIDHasOpenTab, useTabs } from "@/shell/tabs/tabs"
 import { useServer } from "@/runtime/server/current"
+import { countUnreadSessions, isSessionUnreadHere } from "@/shell/notifications/unread-count"
 import {
   INITIAL_LEGACY_MIGRATION_STATE,
   INITIAL_VIEW_REPORT_STATE,
   isSessionUnread,
   selectLegacyHiddenReports,
-  selectSessionUnread,
   transitionLegacyMigration,
   transitionViewReport,
   type LegacyMigrationEvent,
@@ -256,7 +256,7 @@ export function createServerNotificationState(input: {
   })
 
   const unread = (session?: Pick<SessionInfo, "id" | "time">) =>
-    (!!session && manuallyUnread().has(session.id)) || selectSessionUnread(legacyState(), session)
+    isSessionUnreadHere({ manuallyUnread: manuallyUnread(), legacy: legacyState() }, session)
 
   const updateManual = (sessionID: string, unread: boolean) => {
     const apply = () => {
@@ -450,6 +450,14 @@ export function createServerNotificationState(input: {
        */
       unread(sessionID: string, snapshot?: SessionInfo) {
         return unread(input.data.session.get(input.data.session.root(sessionID)) ?? snapshot)
+      },
+      /** Counts the unread root sessions in a merged index and live snapshot, for the taskbar badge. */
+      unreadCount(sessions: readonly SessionInfo[]) {
+        return countUnreadSessions(
+          sessions,
+          { manuallyUnread: manuallyUnread(), legacy: legacyState() },
+          input.muted,
+        )
       },
       manuallyUnread(sessionID: string) {
         return manuallyUnread().has(input.data.session.root(sessionID))

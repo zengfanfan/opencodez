@@ -22,6 +22,7 @@ import { onNativeTranslations } from "./native/translations"
 import { DesktopCli } from "./service/desktop-cli"
 import { setStorageSnapshotObserver } from "./storage/snapshot"
 import { getLastFocusedWindow } from "./windows"
+import { resetTaskbarBadge } from "./windows/taskbar-badge"
 import { isRendererUrl } from "./windows/scheme"
 
 const services = Layer.mergeAll(DesktopFiles.layer, Plugins.layer)
@@ -78,6 +79,10 @@ export const registerIpcHandlers = Effect.gen(function* () {
     // A committed document replaces the bound one; its events wait for the port posted when it loads.
     win.webContents.on("did-navigate", (_event, url) => {
       if (isRendererUrl(url)) handoff.prepare(win.webContents)
+    })
+    // A reload must not leave the old document's taskbar badge behind; reserve a mount barrier for the new one.
+    win.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+      if (isMainFrame && !isInPlace) resetTaskbarBadge(win.webContents, win)
     })
     win.webContents.on("did-finish-load", post)
 

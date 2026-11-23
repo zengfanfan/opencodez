@@ -1,4 +1,4 @@
-import { app, BrowserWindow, systemPreferences } from "electron"
+import { app, BrowserWindow, nativeImage, systemPreferences } from "electron"
 import { Effect } from "effect"
 import { WindowRpcs } from "../../shared/ipc-rpc"
 import { IpcPortHandoff } from "../ipc-transport"
@@ -13,6 +13,12 @@ import {
 } from "../windows"
 import { storedZoomLevel } from "../windows/defaults"
 import { focusWindow, showWindow } from "../windows/focus"
+import {
+  applyTaskbarBadge,
+  claimTaskbarBadgeMount,
+  decideTaskbarBadge,
+  taskbarBadgeDecoded,
+} from "../windows/taskbar-badge"
 import { sender } from "./context"
 
 export const windowHandlers = WindowRpcs.toLayer(
@@ -67,6 +73,27 @@ export const windowHandlers = WindowRpcs.toLayer(
           const win = BrowserWindow.fromWebContents(sender(handoff, context))
 
           if (win) setTrafficLightsPosition(win, position)
+        }),
+      WindowClaimTaskbarBadgeMount: (_args, context) =>
+        Effect.sync(() => claimTaskbarBadgeMount(sender(handoff, context))),
+      WindowSetTaskbarBadge: (request, context) =>
+        Effect.sync(() => {
+          const contents = sender(handoff, context)
+          const win = BrowserWindow.fromWebContents(contents)
+          const update = decideTaskbarBadge(contents, request)
+
+          if (update.kind === "ignore") return
+
+          if (update.kind === "clear") {
+            applyTaskbarBadge(win, update)
+
+            return
+          }
+
+          applyTaskbarBadge(
+            win,
+            taskbarBadgeDecoded(request.icon, update.description, (icon) => nativeImage.createFromDataURL(icon)),
+          )
         }),
     })
   }),

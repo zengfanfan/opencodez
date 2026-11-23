@@ -588,6 +588,11 @@ export const dict = {
   "notification.session.error.title": "Session error",
   "notification.session.error.fallbackDescription": "An error occurred",
 
+  "taskbar.unread.one": "{{count}} unread session",
+  "taskbar.unread.other": "{{count}} unread sessions",
+  "taskbar.unreadAtLeast.one": "At least {{count}} unread session",
+  "taskbar.unreadAtLeast.other": "At least {{count}} unread sessions",
+
   "home.title": "Home",
   "home.projects": "Projects",
   "home.projects.all": "All projects",

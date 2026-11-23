@@ -33,6 +33,15 @@ export type FatalRendererErrorLog = {
   os?: DesktopOS
 }
 
+/** A Windows taskbar badge update; `mount` and `sequence` order updates from overlapping windows/mounts. */
+export type TaskbarBadgeUpdate = {
+  readonly count: number
+  readonly icon: string
+  readonly description: string
+  readonly mount: number
+  readonly sequence: number
+}
+
 type PlatformBase = {
   requestMicrophone?(): Promise<boolean>
   setVoiceCallActive?(active: boolean): Promise<void>
@@ -98,6 +107,12 @@ type PlatformBase = {
 
   /** Save an interface zoom level and apply it to every window (desktop only) */
   setZoomLevel?(level: DesktopZoomLevel): Promise<void>
+
+  /** Overlay the unread-session count on the Windows taskbar icon (desktop only). */
+  setTaskbarBadge?(update: TaskbarBadgeUpdate): Promise<void> | void
+
+  /** Claim the next monotonic taskbar badge mount id for this window (desktop only). */
+  claimTaskbarBadgeMount?(signal?: AbortSignal): Promise<number>
 
   /** Whether the native desktop window is fullscreen */
   windowFullscreen?: Accessor<boolean>

@@ -49,6 +49,20 @@ export const WindowSetTrafficLightsPosition = Rpc.make("WindowSetTrafficLightsPo
   payload: { x: Schema.Number, y: Schema.Number },
 })
 
+export const WindowSetTaskbarBadge = Rpc.make("WindowSetTaskbarBadge", {
+  payload: {
+    count: Schema.Int,
+    icon: Schema.String,
+    description: Schema.String,
+    mount: Schema.Number,
+    sequence: Schema.Int,
+  },
+})
+
+export const WindowClaimTaskbarBadgeMount = Rpc.make("WindowClaimTaskbarBadgeMount", {
+  success: Schema.Int,
+})
+
 export const WindowRpcs = RpcGroup.make(
   WindowRequestMicrophone,
   WindowSetVoiceCallActive,
@@ -65,4 +79,6 @@ export const WindowRpcs = RpcGroup.make(
   WindowSetPinchZoomEnabled,
   WindowSetTitlebar,
   WindowSetTrafficLightsPosition,
+  WindowSetTaskbarBadge,
+  WindowClaimTaskbarBadgeMount,
 )

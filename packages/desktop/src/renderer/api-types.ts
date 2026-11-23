@@ -1,4 +1,5 @@
 import type { DesktopMenuAction, DesktopZoomLevel } from "@opencode/app/desktop-menu"
+import type { TaskbarBadgeUpdate } from "@opencode/app/desktop"
 import type { DesktopNativeBundle } from "@opencode/app/i18n/desktop-native"
 import type { StorageSnapshot } from "../shared/ipc-transport"
 import type { WindowBootstrap } from "../shared/window-bootstrap"
@@ -72,6 +73,8 @@ export type ElectronAPI = {
   getZoomLevel(): Promise<DesktopZoomLevel>
   setZoomLevel(level: DesktopZoomLevel): Promise<void>
   onZoomChanged(cb: (zoom: { factor: number; level: DesktopZoomLevel }) => void): () => void
+  setTaskbarBadge(update: TaskbarBadgeUpdate): Promise<void>
+  claimTaskbarBadgeMount(signal?: AbortSignal): Promise<number>
   setTitlebar(theme: TitlebarTheme): Promise<void>
   setTrafficLightsPosition(position: { x: number; y: number }): Promise<void>
   runDesktopMenuAction(action: DesktopMenuAction): Promise<void>
