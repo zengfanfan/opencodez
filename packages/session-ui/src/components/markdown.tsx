@@ -63,7 +63,6 @@ import {
   type MarkdownCodeBlock,
   type MarkdownCodeBlockMatch,
   type MarkdownCodeBlocks,
-  type OpenMarkdownLocalFile,
   type ReadMarkdownImage,
   type MarkdownLocalFileExists,
 } from "../context/markdown"
@@ -71,6 +70,7 @@ import { createMarkdownImages } from "./markdown-image"
 import { createImagePreview } from "./image-preview"
 import { createDiagramPreview } from "./diagram-preview"
 import { setupFragmentLinks } from "./markdown-fragment-links"
+import { setupLocalLinks } from "./markdown-local-links"
 import { markSessionLinks, sessionReferenceClipboardText, setupSessionLinks } from "./markdown-session-links"
 import { markdownClipboardHtml } from "./markdown-clipboard"
 import { createCopyFeedback } from "./copy"
@@ -637,51 +637,6 @@ function markInlineCode(
   return check.pending
 }
 
-function localLinkTarget(target: EventTarget | null) {
-  if (!(target instanceof Element)) return
-  const link = target.closest("a[data-local-link]")
-
-  if (link instanceof HTMLElement) return link.dataset.localLink
-  // Bare inline paths such as `src/app.ts` open like links when the host can resolve them.
-  const code = target.closest(':not(pre) > code[data-inline-code-kind="path"]')
-
-  if (code instanceof HTMLElement && !code.closest("a")) return code.textContent?.trim() || undefined
-}
-
-function setupLocalLinks(root: HTMLDivElement, open: () => OpenMarkdownLocalFile | undefined) {
-  const handleClick = (event: MouseEvent) => {
-    if (event.defaultPrevented || event.button !== 0) return
-    const path = localLinkTarget(event.target)
-
-    if (!path) return
-    const handler = open()
-
-    if (!handler) return
-    event.preventDefault()
-    handler(path)
-  }
-
-  const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== "Enter" || event.defaultPrevented) return
-
-    if (!(event.target instanceof HTMLElement) || !event.target.matches("a[data-local-link]")) return
-    const path = event.target.dataset.localLink
-    const handler = open()
-
-    if (!path || !handler) return
-    event.preventDefault()
-    handler(path)
-  }
-
-  root.addEventListener("click", handleClick)
-  root.addEventListener("keydown", handleKeyDown)
-
-  return () => {
-    root.removeEventListener("click", handleClick)
-    root.removeEventListener("keydown", handleKeyDown)
-  }
-}
-
 // Each button owns its feedback, so a block replaced mid-feedback drops its reset timer with its host.
 function setupCodeCopy(root: HTMLDivElement) {
   const handleClick = (event: MouseEvent) => {
@@ -1159,7 +1114,7 @@ export function Markdown(
 
     if (!copyCleanup) copyCleanup = setupCodeCopy(container)
 
-    if (!linkCleanup) linkCleanup = setupLocalLinks(container, () => markdown?.openLocalFile)
+    if (!linkCleanup) linkCleanup = setupLocalLinks(container, () => markdown?.openLocalFile, () => markdown?.localFileMenu)
 
     if (!diagramCleanup) diagramCleanup = previewDiagrams(container)
 

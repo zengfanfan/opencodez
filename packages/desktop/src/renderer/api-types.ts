@@ -8,6 +8,7 @@ import type {
   FatalRendererError,
   FilePickerOptions,
   PickedFiles,
+  SaveFileAsResult,
   SaveFilePickerOptions,
   ServerReadyData,
   TitlebarTheme,
@@ -47,6 +48,7 @@ export type ElectronAPI = {
   releasePickedFiles(token: string): Promise<void>
   getPathForFile(file: File): string
   saveFile(opts: SaveFilePickerOptions, content: string): Promise<boolean>
+  saveFileAs(path: string): Promise<SaveFileAsResult>
   openExternal(url: string): void
   openBrowser(url: string): Promise<boolean>
   openLocalFile(url: string): void

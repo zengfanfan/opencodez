@@ -4,7 +4,12 @@ import { DialogProvider } from "@opencode/ui/context/dialog"
 import { I18nProvider, useI18n } from "@opencode/ui/context/i18n"
 import { Markdown } from "../src/components/markdown"
 import { preloadMarkdown } from "../src/components/markdown-cache"
-import { MarkdownProvider, type MarkdownLocalFileExists } from "../src/context/markdown"
+import {
+  MarkdownProvider,
+  type MarkdownLocalFileExists,
+  type MarkdownLocalFileMenu,
+  type OpenMarkdownLocalFile,
+} from "../src/context/markdown"
 import { OpenCode } from "@opencode/client/promise"
 import { readLocalImage } from "../../app/src/runtime/server/image"
 
@@ -32,6 +37,9 @@ export async function mountMarkdown(options: {
   images?: boolean
   synchronousFiles?: boolean
   localFileExists?: MarkdownLocalFileExists
+  openLocalFile?: OpenMarkdownLocalFile
+  localFileMenu?: MarkdownLocalFileMenu
+  disableLocalFileMenu?: boolean
 }) {
   if (options.cached) await preloadMarkdown(options.text, "markdown-test")
   const host = document.createElement("div")
@@ -48,6 +56,17 @@ export async function mountMarkdown(options: {
     const [visible, setVisible] = createSignal(true)
     const [german, setGerman] = createSignal(false)
     const english = useI18n()
+
+    const body = () => (
+      <Show when={visible()}>
+        <Markdown
+          text={text()}
+          streaming={streaming()}
+          cacheKey={options.cached ? "markdown-test" : undefined}
+          deferUntilReady
+        />
+      </Show>
+    )
 
     return (
       <DialogProvider>
@@ -81,15 +100,14 @@ export async function mountMarkdown(options: {
               options.localFileExists?.(path) ??
               (options.synchronousFiles ? existingFiles.has(path) : Promise.resolve(existingFiles.has(path)))
             }
+            openLocalFile={options.openLocalFile}
+            localFileMenu={options.localFileMenu}
           >
-            <Show when={visible()}>
-              <Markdown
-                text={text()}
-                streaming={streaming()}
-                cacheKey={options.cached ? "markdown-test" : undefined}
-                deferUntilReady
-              />
-            </Show>
+            {options.disableLocalFileMenu ? (
+              <MarkdownProvider localFileMenu={false}>{body()}</MarkdownProvider>
+            ) : (
+              body()
+            )}
           </MarkdownProvider>
         </I18nProvider>
       </DialogProvider>

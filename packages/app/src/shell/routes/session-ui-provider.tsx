@@ -16,6 +16,7 @@ import { showToast } from "@/shell/notifications/toast"
 import { SessionExportProvider } from "@/session/commands/export-session"
 import { createTurnDiffCache } from "@/session/timeline/turn-diffs"
 import { SessionReferenceMenu, type SessionReferenceMenuTarget } from "@/session/session-reference-menu"
+import { SessionFileMenu, type SessionFileMenuTarget } from "@/session/session-file-menu"
 import { useSettings } from "@/settings/model"
 import {
   INITIAL_SESSION_UI_NAVIGATE_STATE,
@@ -192,6 +193,7 @@ export function SessionUIProvider(
   }
 
   const [referenceMenu, setReferenceMenu] = createSignal<SessionReferenceMenuTarget>()
+  const [fileMenu, setFileMenu] = createSignal<SessionFileMenuTarget>()
 
   const providers = useProviders(directory)
 
@@ -252,6 +254,7 @@ export function SessionUIProvider(
           openSession={openReferencedSession}
           sessionTitle={sessionTitle}
           sessionMenu={(target) => setReferenceMenu({ ...target })}
+          localFileMenu={(target) => setFileMenu({ ...target, directory: directory() })}
         >
           <SessionExportProvider>{props.children}</SessionExportProvider>
           <SessionReferenceMenu
@@ -260,6 +263,7 @@ export function SessionUIProvider(
             onOpenSession={openReferencedSession}
             onClose={() => setReferenceMenu(undefined)}
           />
+          <SessionFileMenu target={fileMenu()} onClose={() => setFileMenu(undefined)} />
         </MarkdownProvider>
       </DataProvider>
     </LocalProvider>

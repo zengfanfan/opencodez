@@ -11,6 +11,7 @@ type DesktopFileAPI = Pick<
   | "releasePickedFiles"
   | "getPathForFile"
   | "saveFile"
+  | "saveFileAs"
   | "openExternal"
   | "openBrowser"
   | "openLocalFile"
@@ -75,6 +76,7 @@ export function createDesktopFiles(api: DesktopFileAPI, os: DesktopOS) {
     getPathForFile: (file: File) => attachmentPaths.get(file) ?? api.getPathForFile(file),
     saveFile: (options: { title?: string; defaultPath?: string }, content: string) =>
       api.saveFile({ title: options.title, defaultPath: options.defaultPath }, content),
+    saveFileAs: (path: string) => api.saveFileAs(path),
     openExternal: (url: string) => api.openExternal(url),
     openBrowser: (url: string) => api.openBrowser(url),
     openLocalFile: (url: string) => api.openLocalFile(url),

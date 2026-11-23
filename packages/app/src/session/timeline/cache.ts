@@ -77,11 +77,12 @@ export function createTimelineCache(
         const directory = select(() => data.directory)
         const sessionID = select(() => data.sessionID)
         const agents = select(() => data.agents)
-        // Local file links are not held: each view provides its own link handling for its session.
+        // Each view keeps its own link handling for its session, including the local file menu.
         const readImage = select(() => markdown?.readImage)
         const openSession = select(() => markdown?.openSession)
         const sessionTitle = select(() => markdown?.sessionTitle)
         const sessionMenu = select(() => markdown?.sessionMenu)
+        const localFileMenu = select(() => markdown?.localFileMenu)
         const turnDiff = select(() => data.turnDiff)
 
         const view = () =>
@@ -148,6 +149,9 @@ export function createTimelineCache(
                     },
                     get sessionMenu() {
                       return sessionMenu()
+                    },
+                    get localFileMenu() {
+                      return localFileMenu()
                     },
                   },
                   view,

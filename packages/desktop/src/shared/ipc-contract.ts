@@ -36,6 +36,8 @@ export type SaveFilePickerOptions = {
   defaultPath?: string
 }
 
+export type SaveFileAsResult = "saved" | "canceled" | "sameFile" | "unverified"
+
 export type ClipboardImage = {
   buffer: ArrayBuffer
   width: number

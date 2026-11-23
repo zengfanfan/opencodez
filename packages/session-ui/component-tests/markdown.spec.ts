@@ -71,6 +71,137 @@ story("sanitizes raw HTML while preserving supported Markdown markup", async ({ 
   ])
 })
 
+story("drops hrefs that could leave the local machine", async ({ page }) => {
+  const result = await page.evaluate(async (fixture) => {
+    const { sanitizeMarkdown } = await import(fixture)
+
+    return [
+      sanitizeMarkdown('<a href="/&#9;/evil.com">tab</a>'),
+      sanitizeMarkdown('<a href="/\\evil.com">backslash</a>'),
+      sanitizeMarkdown('<a href="\\\\server\\share">unc</a>'),
+      sanitizeMarkdown('<a href="%5Cserver%5Cshare">encoded</a>'),
+      sanitizeMarkdown('<a href="file://server/share">file</a>'),
+      sanitizeMarkdown('<a href="//example.com/x">external</a>'),
+    ]
+  }, fixture)
+
+  expect(result).toEqual([
+    "<a>tab</a>",
+    "<a>backslash</a>",
+    "<a>unc</a>",
+    "<a>encoded</a>",
+    "<a>file</a>",
+    '<a href="//example.com/x">external</a>',
+  ])
+})
+
+story("a selection over a local file link keeps click and the native context menu", async ({ page }) => {
+  const result = await page.evaluate(async (fixture) => {
+    const { mountMarkdown } = await import(fixture)
+    const opened: string[] = []
+    const menus: unknown[] = []
+    await mountMarkdown({
+      text: "[src/file.ts](src/file.ts)",
+      openLocalFile: (path: string) => opened.push(path),
+      localFileMenu: (target: { path: string; x: number; y: number }) => menus.push(target),
+    })
+
+    const link = await new Promise<HTMLAnchorElement>((resolve, reject) => {
+      const started = Date.now()
+
+      const check = () => {
+        const found = document.querySelector<HTMLAnchorElement>('[data-testid="markdown-fixture"] a[data-local-link]')
+
+        if (found) return resolve(found)
+
+        if (Date.now() - started > 5000) return reject(new Error("local link did not render"))
+
+        setTimeout(check, 10)
+      }
+
+      check()
+    })
+
+    const range = document.createRange()
+    range.selectNodeContents(link)
+    const selection = getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 })
+    link.dispatchEvent(click)
+    const menu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 20 })
+    link.dispatchEvent(menu)
+
+    const blocked = {
+      opened: [...opened],
+      menus: [...menus],
+      click: click.defaultPrevented,
+      menu: menu.defaultPrevented,
+    }
+
+    selection.removeAllRanges()
+    const clickAgain = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 })
+    link.dispatchEvent(clickAgain)
+    const menuAgain = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 20 })
+    link.dispatchEvent(menuAgain)
+
+    return {
+      blocked,
+      after: {
+        opened: [...opened],
+        menus: [...menus],
+        click: clickAgain.defaultPrevented,
+        menu: menuAgain.defaultPrevented,
+      },
+    }
+  }, fixture)
+
+  expect(result).toEqual({
+    blocked: { opened: [], menus: [], click: false, menu: false },
+    after: {
+      opened: ["src/file.ts"],
+      menus: [{ path: "src/file.ts", x: 10, y: 20 }],
+      click: true,
+      menu: true,
+    },
+  })
+})
+
+story("a nested provider can turn off an inherited local file menu", async ({ page }) => {
+  const menus = await page.evaluate(async (fixture) => {
+    const { mountMarkdown } = await import(fixture)
+    const seen: unknown[] = []
+    await mountMarkdown({
+      text: "[src/file.ts](src/file.ts)",
+      localFileMenu: (target: { path: string; x: number; y: number }) => seen.push(target),
+      disableLocalFileMenu: true,
+    })
+
+    const link = await new Promise<HTMLAnchorElement>((resolve, reject) => {
+      const started = Date.now()
+
+      const check = () => {
+        const found = document.querySelector<HTMLAnchorElement>('[data-testid="markdown-fixture"] a[data-local-link]')
+
+        if (found) return resolve(found)
+
+        if (Date.now() - started > 5000) return reject(new Error("local link did not render"))
+
+        setTimeout(check, 10)
+      }
+
+      check()
+    })
+
+    link.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 20 }))
+
+    return seen
+  }, fixture)
+
+  expect(menus).toEqual([])
+})
+
 story("keeps Markdown sanitization and link protections after Mermaid renders", async ({ page }) => {
   const result = await page.evaluate(async (fixture) => {
     const { renderMermaidSvg, sanitizeMarkdown } = await import(fixture)

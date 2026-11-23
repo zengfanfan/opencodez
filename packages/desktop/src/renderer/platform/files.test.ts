@@ -21,6 +21,11 @@ function fileApi(events: string[]): Parameters<typeof createDesktopFiles>[0] {
     },
     getPathForFile: () => "fallback",
     saveFile: async () => false,
+    saveFileAs: async (path: string) => {
+      events.push(`saveAs:${path}`)
+
+      return "saved"
+    },
     openExternal: () => {},
     openBrowser: async () => true,
     openLocalFile: () => {},
@@ -41,7 +46,8 @@ describe("desktop attachment files", () => {
 
     expect(await files.openBrowser("https://opencode.ai/console")).toBe(false)
     await files.writeClipboardText("ses_123")
-    expect(events).toEqual(["clipboard:ses_123"])
+    expect(await files.saveFileAs("C:\\source.txt")).toBe("saved")
+    expect(events).toEqual(["clipboard:ses_123", "saveAs:C:\\source.txt"])
   })
 
   test("reads selected files sequentially and releases the token", async () => {

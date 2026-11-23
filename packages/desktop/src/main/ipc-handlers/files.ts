@@ -25,6 +25,7 @@ export const fileHandlers = FileRpcs.toLayer(
       FilesReleasePickedFiles: ({ token }, context) =>
         Effect.sync(() => files.releasePickedFiles(sender(handoff, context).id, token)),
       FilesSaveFile: ({ options, content }) => files.saveFile(options, content).pipe(Effect.orDie),
+      FilesSaveFileAs: ({ path }) => files.saveFileAs(path).pipe(Effect.orDie),
       FilesOpenExternal: ({ url }) => openExternalURL(url).pipe(Effect.asVoid),
       FilesOpenBrowser: ({ url }) => (/^https?:/i.test(url) ? openExternalURL(url) : Effect.succeed(false)),
       FilesOpenLocalFile: ({ url }) => openLocalFileURL(url),

@@ -749,6 +749,7 @@ function ArtifactMarkdown(props: { session: MountedSession; path: string; text: 
       readImage={(src, signal) => parent?.readImage?.(resolve(src), signal) ?? Promise.resolve(undefined)}
       openLocalFile={(href) => void links.open({ href, base: dir(), session: props.session })}
       localFileExists={(href) => untrack(() => links.exists({ href, base: dir(), session: props.session }))}
+      localFileMenu={false}
     >
       <div data-slot="artifact-markdown-page" data-component="document-surface">
         <div data-slot="artifact-markdown-content">

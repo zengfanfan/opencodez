@@ -78,6 +78,9 @@ type PlatformBase = {
   /** Open a native save file dialog and write content to the selected path (desktop only) */
   saveFile?(opts: SaveFilePickerOptions, content: string): Promise<boolean>
 
+  /** Copy a local file to a path chosen in the native save dialog (desktop only) */
+  saveFileAs?(path: string): Promise<"saved" | "canceled" | "sameFile" | "unverified">
+
   /** Storage mechanism, defaults to localStorage */
   storage?: (name?: string) => SyncStorage | AsyncStorage
 

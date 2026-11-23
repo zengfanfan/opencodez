@@ -7,6 +7,9 @@ export type ReadMarkdownImage = (path: string, signal: AbortSignal) => Promise<B
 /** Open a local file path linked from markdown. The path is decoded and may be relative or absolute. */
 export type OpenMarkdownLocalFile = (path: string) => void
 
+/** Opens the context menu for a local file path. Coordinates are viewport pixels. */
+export type MarkdownLocalFileMenu = (input: { path: string; x: number; y: number }) => void
+
 /**
  * Whether an inline-code path names a file that exists. Inline code is styled as a file link only when this says yes;
  * without it, inline code stays plain.
@@ -58,6 +61,7 @@ export type MarkdownCodeBlocks = {
 const context = createContext<{
   readonly readImage?: ReadMarkdownImage
   readonly openLocalFile?: OpenMarkdownLocalFile
+  readonly localFileMenu?: MarkdownLocalFileMenu
   readonly localFileExists?: MarkdownLocalFileExists
   readonly openSession?: (sessionID: string) => void
   readonly sessionTitle?: (sessionID: string) => string | undefined
@@ -69,6 +73,8 @@ export function MarkdownProvider(
   props: ParentProps<{
     readImage?: ReadMarkdownImage
     openLocalFile?: OpenMarkdownLocalFile
+    /** `false` turns the menu off below, e.g. inside content whose paths resolve against another root. */
+    localFileMenu?: MarkdownLocalFileMenu | false
     localFileExists?: MarkdownLocalFileExists
     openSession?: (id: string) => void
     sessionTitle?: (id: string) => string | undefined
@@ -87,6 +93,11 @@ export function MarkdownProvider(
         },
         get openLocalFile() {
           return props.openLocalFile
+        },
+        get localFileMenu() {
+          if (props.localFileMenu === false) return undefined
+
+          return props.localFileMenu ?? parent?.localFileMenu
         },
         get localFileExists() {
           return props.localFileExists ?? parent?.localFileExists

@@ -1,4 +1,5 @@
 import { parseSessionMention, sessionMentions, type SessionMention } from "@opencode/util/session-mention"
+import { selectionTouches } from "./markdown-selection"
 
 export type SessionTitle = (id: string) => string | undefined
 
@@ -96,7 +97,7 @@ export function setupSessionLinks(
     if (event.defaultPrevented || !(event.target instanceof Element)) return
     const button = event.target.closest("button[data-session-id]")
 
-    if (!(button instanceof HTMLButtonElement) || !root.contains(button)) return
+    if (!(button instanceof HTMLButtonElement) || !root.contains(button) || selectionTouches(button)) return
     const handler = open()
 
     if (!handler) return
@@ -108,7 +109,7 @@ export function setupSessionLinks(
     const reference = sessionReferenceTarget(root, event.target)
     const handler = menu?.()
 
-    if (event.defaultPrevented || !reference || !handler) return
+    if (event.defaultPrevented || !reference || !handler || selectionTouches(reference)) return
     event.preventDefault()
     event.stopPropagation()
     handler({ sessionID: reference.dataset.sessionId!, x: event.clientX, y: event.clientY })

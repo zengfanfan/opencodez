@@ -9,7 +9,7 @@ import {
   type MarkdownCacheEvent,
 } from "./markdown-cache-machine"
 import { abortParseMarkdown, markdownWorkerDisposed, startParseMarkdown } from "./markdown-worker"
-import { localImagePath, localLinkPath } from "./markdown-image"
+import { localImagePath, localLinkPath, unsafeMarkdownHref } from "./markdown-image"
 
 export type { MarkdownCacheEntry } from "./markdown-cache-machine"
 
@@ -55,9 +55,15 @@ if (typeof window !== "undefined" && purifier.isSupported) {
     if (node instanceof HTMLAnchorElement) {
       // Local file links never navigate the document; the host decides how to open them.
       node.removeAttribute("data-local-link")
-      const path = localLinkPath(node.getAttribute("href") ?? "")
+      const href = node.getAttribute("href") ?? ""
+      const path = localLinkPath(href)
 
-      if (!path) return
+      if (!path) {
+        if (unsafeMarkdownHref(href)) node.removeAttribute("href")
+
+        return
+      }
+
       node.setAttribute("data-local-link", path)
       node.setAttribute("role", "link")
       node.setAttribute("tabindex", "0")

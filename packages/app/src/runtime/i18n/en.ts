@@ -761,6 +761,11 @@ export const dict = {
   "session.location.copyPath": "Copy path",
   "session.location.copyBranch": "Copy branch name",
   "session.location.noBranch": "No branch",
+  "session.file.open": "Open File",
+  "session.file.saveAs": "Save As…",
+  "session.file.multiple": "Multiple files match this path",
+  "session.file.sameFile": "Source and destination are the same file",
+  "session.file.unverified": "Couldn't check the destination; nothing was copied",
 
   "settings.tab.servers": "Servers",
   "settings.extensions.tab.plugins": "Plugins",

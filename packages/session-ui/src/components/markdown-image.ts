@@ -9,9 +9,15 @@ import {
   type MarkdownImagesEvent,
 } from "./markdown-image-machine"
 
+// Markdown percent-encodes backslashes. A single leading one is a UNC or rooted path, not a file here.
+const leadingBackslash = /^(?:\\|%5c)/i
+
 export function localImagePath(source: string) {
+  const raw = source.trim()
+
+  if (leadingBackslash.test(raw)) return
   // Marked percent-encodes image sources, so `C:\tmp\chart.png` arrives as `C:%5Ctmp%5Cchart.png`.
-  const value = source.trim().replace(/\\|%5c/gi, "/")
+  const value = raw.replace(/\\|%5c/gi, "/")
 
   if (!value || /[\u0000-\u001f\u007f]/.test(value) || value.startsWith("//")) return
 
@@ -37,7 +43,7 @@ export function localImagePath(source: string) {
 export function localLinkPath(href: string) {
   const value = href.trim()
 
-  if (!value || value.startsWith("#") || value.startsWith("?")) return
+  if (!value || value.startsWith("#") || value.startsWith("?") || leadingBackslash.test(value)) return
 
   const hashIndex = value.indexOf("#")
   const hash = hashIndex === -1 ? "" : value.slice(hashIndex)
@@ -56,6 +62,20 @@ export function localLinkPath(href: string) {
   }
 
   return `${base}${isLineRangeHash(hash) ? hash : ""}`
+}
+
+/**
+ * An href that must not survive sanitization: control characters can make `/\t/evil.com` parse as
+ * `//evil.com`, and `file:` or UNC targets would leave the local machine.
+ */
+export function unsafeMarkdownHref(href: string) {
+  if (/[\u0000-\u001f\u007f]/.test(href)) return true
+
+  const value = href.trim()
+
+  if (leadingBackslash.test(value) || /^file:/i.test(value)) return true
+
+  return /^[/\\]*\\/.test(value)
 }
 
 function decodePath(value: string) {

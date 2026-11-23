@@ -8,6 +8,7 @@ import { scoped } from "../native/logging"
 import { nativeT } from "../native/translations"
 import { assertAttachmentBudget, createPickedFileAuthorizations, readAttachment } from "./attachment-picker"
 import { resolveExternalURL, resolveLocalFilePath } from "./external-url"
+import { copyFileForSaveAs } from "./save-as"
 
 export type Interface = ReturnType<typeof make>
 
@@ -52,6 +53,35 @@ function watchRenderer(sender: number, clear: () => void) {
     contents.off("did-start-navigation", navigated)
     contents.off("destroyed", clear)
   }
+}
+
+function openLocalPath(target: string) {
+  if (process.platform === "win32") {
+    // Launch through Explorer, like a double-click. The child app must not inherit this dev app's
+    // renderer URL, or an Electron app such as MarkText loads this Vite page instead of the file.
+    const env = { ...process.env }
+    delete env.ELECTRON_RENDERER_URL
+    delete env.VITE_DEV_SERVER_URL
+    delete env.ELECTRON_RUN_AS_NODE
+
+    return Effect.tryPromise(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          const child = spawn("explorer.exe", [target], { detached: true, stdio: "ignore", env })
+          child.once("error", reject)
+          child.once("spawn", () => {
+            child.unref()
+            resolve()
+          })
+        }),
+    )
+  }
+
+  return Effect.tryPromise(async () => {
+    const error = await shell.openPath(target)
+
+    if (error) throw new Error(error)
+  })
 }
 
 function make(
@@ -123,18 +153,33 @@ function make(
 
       return true
     }),
-    openPath: Effect.fn("DesktopFiles.openPath")(function* (target: string, application?: string) {
-      if (!application) {
-        const error = yield* Effect.promise(() => shell.openPath(target))
+    saveFileAs: Effect.fn("DesktopFiles.saveFileAs")(function* (source: string) {
+      const result = yield* Effect.promise(() =>
+        dialog.showSaveDialog({
+          title: nativeT("desktop.dialog.saveFile"),
+          defaultPath: source,
+        }),
+      )
 
-        if (error) return yield* Effect.fail(new Error(error))
+      if (result.canceled || !result.filePath) return "canceled" as const
+
+      return yield* copyFileForSaveAs(source, result.filePath).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs),
+      )
+    }),
+    openPath: Effect.fn("DesktopFiles.openPath")(function* (target: string, application?: string) {
+      // Match Explorer's native separators before handing the path to the shell.
+      const targetPath = path.sep === "\\" ? path.normalize(target) : target
+
+      if (!application) {
+        yield* openLocalPath(targetPath)
 
         return
       }
 
       if (process.platform === "win32" && /^powershell(\.exe)?$/i.test(path.basename(application))) {
-        const info = yield* fs.stat(target)
-        const cwd = info.type === "Directory" ? target : path.dirname(target)
+        const info = yield* fs.stat(targetPath)
+        const cwd = info.type === "Directory" ? targetPath : path.dirname(targetPath)
 
         // PowerShell takes its working directory rather than a path argument, and needs its own console window:
         // `start` opens one, and ignored stdio keeps the console from holding cmd's pipes open until PowerShell exits.
@@ -155,8 +200,8 @@ function make(
         new Promise<void>((resolve, reject) => {
           const command =
             process.platform === "darwin"
-              ? { file: "open", arguments: ["-a", application, target] }
-              : { file: application, arguments: [target] }
+              ? { file: "open", arguments: ["-a", application, targetPath] }
+              : { file: application, arguments: [targetPath] }
 
           execFile(command.file, command.arguments, (error) => (error ? reject(error) : resolve()))
         }),
@@ -226,9 +271,9 @@ export const openLocalFileURL = Effect.fn("DesktopFiles.openLocalFileURL")(funct
     return
   }
 
-  const error = yield* Effect.promise(() => shell.openPath(path))
-
-  if (error) yield* scoped("window", Effect.logError("failed to open local file", { path, error }))
+  yield* openLocalPath(path).pipe(
+    Effect.catch((error) => scoped("window", Effect.logError("failed to open local file", { path, error }))),
+  )
 })
 
 function pickerFilters(extensions?: string[]) {

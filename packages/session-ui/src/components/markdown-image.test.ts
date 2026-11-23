@@ -1,6 +1,6 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, afterEach, beforeAll, describe, expect, jest, test } from "bun:test"
-import { createMarkdownImages, localImagePath, localLinkPath } from "./markdown-image"
+import { createMarkdownImages, localImagePath, localLinkPath, unsafeMarkdownHref } from "./markdown-image"
 
 test.each([
   ["./out/report.html", "./out/report.html"],
@@ -18,12 +18,20 @@ test.each([
   expect(localLinkPath(href)).toBe(path)
 })
 
-test.each(["#section", "?query", "https://example.com/report.html", "mailto:dev@example.com", "tel:5551234", "", "  "])(
-  "keeps non-local link %s",
-  (href) => {
-    expect(localLinkPath(href)).toBeUndefined()
-  },
-)
+test.each([
+  "#section",
+  "?query",
+  "https://example.com/report.html",
+  "mailto:dev@example.com",
+  "tel:5551234",
+  "",
+  "  ",
+  "\\\\server\\share\\file.ts",
+  "\\server\\share\\file.ts",
+  "%5Cserver%5Cshare%5Cfile.ts",
+])("keeps non-local link %s", (href) => {
+  expect(localLinkPath(href)).toBeUndefined()
+})
 
 test.each([
   ["C:/tmp/chart.png", "C:/tmp/chart.png"],
@@ -47,6 +55,8 @@ test.each([
   "http://example.com/chart.png",
   "//example.com/chart.png",
   "\\\\server\\share\\chart.png",
+  "\\server\\share\\chart.png",
+  "%5Cserver%5Cshare%5Cchart.png",
   "file://server/share/chart.png",
   "data:image/png;base64,AA==",
   "blob:https://example.com/image",
@@ -59,6 +69,29 @@ test.each([
 ])("does not read non-local or invalid source %s", (source) => {
   expect(localImagePath(source)).toBeUndefined()
 })
+
+test.each([
+  "/\t/evil.com",
+  "/\n/evil.com",
+  "/\\evil.com",
+  "\\\\server\\share",
+  "\\server\\share",
+  "%5Cserver%5Cshare",
+  " \\evil.com",
+  "\\ \\evil.com",
+  "file:///C:/secret.txt",
+  "file://server/share",
+  "\u0000/evil.com",
+])("drops unsafe href %s", (href) => {
+  expect(unsafeMarkdownHref(href)).toBe(true)
+})
+
+test.each(["//example.com/x", "https://example.com/x", "#section", "?query", "/local", "src/app.ts"])(
+  "keeps safe href %s",
+  (href) => {
+    expect(unsafeMarkdownHref(href)).toBe(false)
+  },
+)
 
 describe("createMarkdownImages", () => {
   // Happy DOM's fetch cannot read `blob:` URLs; Bun's can, and fails once the URL is revoked.

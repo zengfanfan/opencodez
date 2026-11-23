@@ -1,5 +1,5 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
-import { afterAll, beforeAll, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test"
 import { markSessionLinks, sessionReferenceClipboardText, setupSessionLinks } from "./markdown-session-links"
 
 const first = "ses_0123456789abcdefghijklmnop"
@@ -11,6 +11,16 @@ const title = (id: string) => ({ [first]: "Auth middleware", [second]: "Release 
 beforeAll(() => GlobalRegistrator.register())
 
 afterAll(() => GlobalRegistrator.unregister())
+
+afterEach(() => window.getSelection()?.removeAllRanges())
+
+function selectContents(element: Element) {
+  const range = document.createRange()
+  range.selectNodeContents(element)
+  const selection = window.getSelection()!
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
 
 test("links complete IDs in prose and inline code without changing fenced code or existing links", () => {
   const root = document.createElement("div")
@@ -127,4 +137,35 @@ test("copied text writes each selected reference as its source instead of its ti
   plain.selectNodeContents(root.querySelectorAll("p")[1]!)
   expect(sessionReferenceClipboardText(root, [plain])).toBeUndefined()
   root.remove()
+})
+
+test("a selection over a session reference keeps click and the native context menu", () => {
+  const root = document.createElement("div")
+  const opened: string[] = []
+  const menus: unknown[] = []
+
+  const dispose = setupSessionLinks(
+    root,
+    () => (id) => opened.push(id),
+    () => (input) => menus.push(input),
+  )
+
+  root.innerHTML = `<p>${first}</p>`
+  markSessionLinks(root, title)
+  const button = root.querySelector("button")!
+  selectContents(button)
+
+  const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 })
+  button.dispatchEvent(click)
+  const menu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true })
+  button.dispatchEvent(menu)
+
+  expect(opened).toEqual([])
+  expect(menus).toEqual([])
+  expect([click.defaultPrevented, menu.defaultPrevented]).toEqual([false, false])
+
+  window.getSelection()?.removeAllRanges()
+  button.click()
+  expect(opened).toEqual([first])
+  dispose()
 })

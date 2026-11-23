@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test"
 import type { SessionMessageInfo } from "@opencode/client/promise"
 import { DataContext, useData, type TurnDiffSource } from "@opencode/session-ui/context"
-import { MarkdownContext, useMarkdown, type ReadMarkdownImage } from "@opencode/session-ui/context/markdown"
+import {
+  MarkdownContext,
+  useMarkdown,
+  type MarkdownLocalFileMenu,
+  type ReadMarkdownImage,
+} from "@opencode/session-ui/context/markdown"
 import {
   batch,
   createComponent,
@@ -81,6 +86,17 @@ function setup() {
       return read
     })
 
+    const localFileMenus = new Map<string, MarkdownLocalFileMenu>()
+    const localFileMenuCalls: string[] = []
+
+    const localFileMenu = createMemo<MarkdownLocalFileMenu>(() => {
+      const directory = state.directory
+
+      return (target) => {
+        localFileMenuCalls.push(`${directory}:${target.path}`)
+      }
+    })
+
     const location = createMemo(() => ({
       directory: state.directory,
       event: { on: () => () => {}, listen: () => () => {} },
@@ -125,6 +141,9 @@ function setup() {
               get readImage() {
                 return imageReader()
               },
+              get localFileMenu() {
+                return localFileMenu()
+              },
             },
             () => {
               cache = createSessionTimelineCache()
@@ -147,6 +166,8 @@ function setup() {
       turnDiffs,
       reloads,
       actions,
+      localFileMenus,
+      localFileMenuCalls,
       directoryReads: () => directoryReads,
       dispose,
     }
@@ -196,6 +217,10 @@ function setup() {
             ),
           )
           const view = `${id} in ${state.directory}`
+          const viewLocalFileMenu = markdown?.localFileMenu
+
+          if (viewLocalFileMenu) localFileMenus.set(view, viewLocalFileMenu)
+
           createComputed(() => {
             const readImage = markdown?.readImage
             reads[view] = [
@@ -371,6 +396,32 @@ test("a detached view's message actions keep its own session while a child sessi
       "ses_child in /repo": ["child"],
       "ses_b in /repo": ["root queued"],
     })
+  } finally {
+    input.dispose()
+  }
+})
+
+test("a detached view keeps its own local file menu handler", () => {
+  const input = setup()
+
+  try {
+    input.cache()
+    const repo = input.localFileMenus.get("ses_a in /repo")!
+
+    repo({ path: "src/a.ts", x: 0, y: 0 })
+    input.setState("id", "ses_b")
+    input.setState("directory", "/other")
+    input.cache()
+    const other = input.localFileMenus.get("ses_b in /other")!
+
+    expect(other).not.toBe(repo)
+    other({ path: "src/b.ts", x: 0, y: 0 })
+    input.setState("id", "ses_a")
+    input.setState("directory", "/repo")
+    input.cache()
+    input.localFileMenus.get("ses_a in /repo")!({ path: "src/c.ts", x: 0, y: 0 })
+
+    expect(input.localFileMenuCalls).toEqual(["/repo:src/a.ts", "/other:src/b.ts", "/repo:src/c.ts"])
   } finally {
     input.dispose()
   }
