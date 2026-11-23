@@ -18,15 +18,40 @@ story.describe("touch timeline", () => {
       await expect(actions.getByRole("button", { name: action.name, exact: true })).toBeVisible()
     }
 
-    // Agent and model are omitted on mobile, leaving only the response duration.
+    // The user message meta still omits agent and model on mobile; the reply details are tooltips.
     await expect(timeline.locator('[data-slot="user-message-meta-item"]')).toHaveCount(0)
     await expect(timeline.locator('[data-slot="user-message-pending"]')).toBeHidden()
-    const responseMeta = timeline.locator('[data-slot="text-part-meta"]')
-    await expect(responseMeta).not.toBeEmpty()
-    await expect(responseMeta).not.toContainText("Build")
-    await expect(responseMeta).not.toContainText("Sonnet")
-    await expect(responseMeta.locator('[data-slot="text-part-meta-speed"]')).toHaveText("·60.0 tok/s")
-    await expect(responseMeta.locator('[data-slot="text-part-meta-speed"]')).toBeHidden()
+
+    const completed = timeline.locator('[data-slot="text-part-completed-at"]')
+    const icon = timeline.locator('[data-slot="text-part-agent"]')
+    const wrapper = timeline.locator('[data-slot="text-part-copy-wrapper"]')
+
+    await expect(completed).toHaveCount(1)
+    await expect(completed).toBeVisible()
+    await expect(icon).toBeVisible()
+
+    // Tapping the time does nothing without hover; tapping the icon opens the turn details.
+    await completed.tap()
+    await expect(page.getByRole("tooltip").filter({ hasText: "Wednesday" })).toHaveCount(0)
+
+    await icon.tap()
+    const details = page.getByRole("tooltip").filter({ hasText: "Build" })
+    await expect(details).toBeVisible()
+    await expect(details).toContainText("Claude Sonnet 4")
+    await expect(details).toContainText("Balanced")
+    await expect(details).toContainText("60.0 tok/s")
+
+    await page.touchscreen.tap(10, 10)
+    await expect(details).toBeHidden()
+
+    const bounds = (await wrapper.boundingBox())!
+
+    for (const item of [completed, icon]) {
+      const box = (await item.boundingBox())!
+
+      expect(box.x).toBeGreaterThanOrEqual(bounds.x)
+      expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1)
+    }
   })
 
   story("keeps the always-shown chevron clear of the prompt's text", async ({ mount }) => {
@@ -116,7 +141,7 @@ story("desktop user message actions still appear on hover and keyboard focus", a
   await expect(actions).toHaveCSS("pointer-events", "auto")
 })
 
-story("desktop response copy stays visible while its metadata waits for hover or focus", async ({ mount, page }) => {
+story("desktop response details wait for the agent icon", async ({ mount, page }) => {
   const timeline = await mount("current-session-timeline-rows--conversation", { args: { scenario: "interruption" } })
   expect(await page.evaluate(() => matchMedia("(hover: hover)").matches)).toBe(true)
 
@@ -135,29 +160,21 @@ story("desktop response copy stays visible while its metadata waits for hover or
   await expect(copy.locator('[data-slot="icon-svg"]')).toHaveCSS("width", "14px")
   const rest = await copy.boundingBox()
 
-  const meta = actions.locator('[data-slot="text-part-meta"]')
-  await expect(meta).toHaveCSS("opacity", "0")
-  await expect(meta).toHaveCSS("pointer-events", "none")
-  await expect(meta).toHaveCSS("font-size", "12px")
-  await expect(meta).toHaveCSS("line-height", "18px")
-  await expect(meta).toHaveCSS("gap", "4px")
-  await expect(meta.locator('[data-slot="text-part-meta-item"]')).toHaveText(["Build", "Claude Sonnet 4", "4s"])
-  const separators = meta.locator('[data-slot="text-part-meta-separator"]')
-  await expect(separators).toHaveCount(2)
+  const icon = actions.locator('[data-slot="text-part-agent"]')
+  await expect(icon).toBeVisible()
+  await expect(actions.locator('[data-slot="text-part-meta"]')).toHaveCount(0)
 
-  for (const separator of await separators.all()) {
-    await expect(separator).toHaveText("\u00B7")
-  }
-
-  await actions.locator("..").hover()
-  await expect(meta).toHaveCSS("opacity", "1")
-  await expect(meta).toHaveCSS("pointer-events", "auto")
+  await icon.hover()
+  const details = page.getByRole("tooltip").filter({ hasText: "Build" })
+  await expect(details).toBeVisible()
+  await expect(details).toContainText("Claude Sonnet 4")
+  await expect(details).toContainText("4s")
   expect(await copy.boundingBox()).toEqual(rest)
 
-  await page.mouse.move(0, 0)
-  await expect(meta).toHaveCSS("opacity", "0")
+  await copy.hover()
+  await expect(details).toBeHidden()
   await expect(actions).toHaveCSS("opacity", "1")
+
   await copy.focus()
-  await expect(meta).toHaveCSS("opacity", "1")
-  await expect(meta).toHaveCSS("pointer-events", "auto")
+  await expect(details).toBeHidden()
 })

@@ -361,6 +361,8 @@ const source = {
   "ui.message.copyResponse": "Copy response",
   "ui.message.copyOutput": "Copy output",
   "ui.message.copied": "Copied",
+  "ui.message.jumpToPrompt": "Jump to prompt",
+  "ui.message.agentDetails": "Agent details",
   "ui.message.thought": "Thought",
   "ui.message.duration.seconds": "{{count}}s",
   "ui.message.duration.minutesSeconds": "{{minutes}}m {{seconds}}s",

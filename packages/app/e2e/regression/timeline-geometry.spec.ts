@@ -912,6 +912,10 @@ test("keeps the meta lines under messages reachable in the New timeline", async 
   const reply = content.locator('[data-component="text-part"]', { hasText: "Added the footer check." })
   await expect(reply).toBeVisible()
 
+  const completed = reply.locator('[data-slot="text-part-completed-at"]')
+  await expect(completed).toBeVisible()
+  await expect(completed).toHaveAttribute("datetime", "2023-11-14T22:13:22.000Z")
+
   // Each virtual row clips to its measured height, so a meta line drawn below its row is cut off.
   await user.locator('[data-slot="user-message-text"]').hover()
   const meta = user.locator('[data-slot="user-message-copy-wrapper"]')
@@ -923,6 +927,125 @@ test("keeps the meta lines under messages reachable in the New timeline", async 
 
   // Hover only lands on what paints on top, so a clipped or covered Copy response never receives the pointer.
   await reply.getByRole("button", { name: "Copy response" }).hover()
+})
+
+for (const newTimeline of [false, true]) {
+  test(`jumps from the reply footer to an offscreen prompt (${newTimeline ? "new" : "old"} timeline)`, async ({
+    page,
+  }) => {
+    const text = Array.from({ length: 40 }, (_, index) => `Reply line ${index + 1}`).join("\n\n")
+
+    await setupTimeline(page, {
+      settings: { newTimeline },
+      viewport: { width: 1280, height: 800 },
+      sessionMessages: [
+        ...validateTimelineMessages([
+          userMessage([userText("The prompt to return to.", { id: "prt_jump_user_text" })], {
+            id: "msg_jump_user",
+            created: 1700000000000,
+          }),
+          assistantMessage([{ id: "prt_jump_reply", type: "text", text }], {
+            id: "msg_jump_reply",
+            parentID: "msg_jump_user",
+            created: 1700000001000,
+          }),
+        ]),
+        { id: "msg_jump_idle", type: "idle", outcome: "succeeded", time: { created: 1700000002000 } },
+      ],
+    })
+
+    const content = page.locator("[data-timeline-virtual-content]")
+    const reply = content.locator('[data-component="text-part"]', { hasText: "Reply line 1" })
+    await expect(reply).toBeVisible()
+
+    const completed = reply.locator('[data-slot="text-part-completed-at"]')
+    await completed.hover()
+    await expect(page.getByRole("tooltip").filter({ hasText: "2023" })).toBeVisible()
+
+    const icon = reply.locator('[data-slot="text-part-agent"]')
+    await icon.hover()
+    await expect(page.getByRole("tooltip").filter({ hasText: "Build" })).toBeVisible()
+
+    const jump = reply.getByRole("button", { name: "Jump to prompt", exact: true })
+    await expect(jump).toBeVisible()
+
+    const user = page.locator('[data-timeline-row="UserMessage"][data-message-id="msg_jump_user"]')
+    await expect(user).not.toBeInViewport()
+
+    await jump.click()
+    await expect(user).toBeInViewport()
+  })
+}
+
+test("does not show the jump button while the prompt is in view", async ({ page }) => {
+  await setupTimeline(page, {
+    viewport: { width: 1280, height: 800 },
+    messages: [
+      userMessage([userText("Visible prompt.", { id: "prt_short_user_text" })], {
+        id: "msg_short_user",
+        created: 1700000000000,
+      }),
+      assistantMessage([{ id: "prt_short_reply", type: "text", text: "Short reply." }], {
+        id: "msg_short_reply",
+        parentID: "msg_short_user",
+        created: 1700000001000,
+      }),
+    ],
+  })
+
+  const reply = page.locator('[data-component="text-part"]', { hasText: "Short reply." })
+  await expect(reply.getByRole("button", { name: "Jump to prompt", exact: true })).toHaveCount(0)
+})
+
+test("keeps the reply footer inside 390px with the jump button", async ({ page }) => {
+  const text = Array.from({ length: 40 }, (_, index) => `Narrow line ${index + 1}`).join("\n\n")
+
+  await setupTimeline(page, {
+    viewport: { width: 390, height: 844 },
+    sessionMessages: [
+      ...validateTimelineMessages([
+        userMessage([userText("Narrow prompt.", { id: "prt_narrow_user_text" })], {
+          id: "msg_narrow_user",
+          created: 1700000000000,
+        }),
+        assistantMessage([{ id: "prt_narrow_reply", type: "text", text }], {
+          id: "msg_narrow_reply",
+          parentID: "msg_narrow_user",
+          created: 1700000001000,
+        }),
+      ]),
+      { id: "msg_narrow_idle", type: "idle", outcome: "succeeded", time: { created: 1700000002000 } },
+    ],
+  })
+
+  const reply = page.locator('[data-component="text-part"]', { hasText: "Narrow line 1" })
+  const jump = reply.getByRole("button", { name: "Jump to prompt", exact: true })
+  const footer = reply.locator('[data-slot="text-part-copy-wrapper"]')
+  await expect(jump).toBeVisible()
+
+  const bounds = (await footer.boundingBox())!
+
+  const items = [
+    footer.getByRole("button", { name: "Copy response", exact: true }),
+    reply.locator('[data-slot="text-part-agent"]'),
+    reply.locator('[data-slot="text-part-completed-at"]'),
+    jump,
+  ]
+
+  const boxes: { x: number; width: number }[] = []
+
+  for (const item of items) {
+    const box = (await item.boundingBox())!
+
+    // The copy control pulls 2px toward the text edge by design.
+    expect(box.x).toBeGreaterThanOrEqual(bounds.x - 2)
+    expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1)
+    boxes.push(box)
+  }
+
+  for (let index = 1; index < boxes.length; index++) {
+    expect(boxes[index]!.x).toBeGreaterThanOrEqual(boxes[index - 1]!.x)
+  }
 })
 
 test("leaves a long prompt unfolded while Fold long messages is off", async ({ page }) => {

@@ -1,48 +1,48 @@
 import { expect, story } from "../../stories/playwright/story"
 
-story("reveals turn speed with the response footer", async ({ mount, page }) => {
+story("reveals turn details from the agent icon", async ({ mount, page }) => {
   const timeline = await mount("current-session-timeline-rows--response-speed", { args: { steered: true } })
+  const reply = timeline.locator('[data-component="text-part"]').filter({ hasText: "The timeline checks passed." })
+  const footer = reply.locator('[data-slot="text-part-copy-wrapper"]')
+  const icon = footer.locator('[data-slot="text-part-agent"]')
+  const copy = footer.getByRole("button", { name: "Copy response", exact: true })
+  const details = page.getByRole("tooltip").filter({ hasText: "Build" })
 
-  const footer = timeline.locator('[data-slot="text-part-copy-wrapper"]').last()
+  await expect(icon).toBeVisible()
+  await expect(copy).toBeVisible()
+  await expect(footer.locator('[data-slot="text-part-meta"]')).toHaveCount(0)
 
-  const meta = footer.locator('[data-slot="text-part-meta"]')
+  await icon.hover()
+  await expect(details).toBeVisible()
+  await expect(details).toContainText("Claude Sonnet 4")
+  await expect(details).toContainText("Balanced")
+  await expect(details).toContainText("5m 2s")
+  await expect(details).toContainText("60.0 tok/s")
 
-  const speed = meta.locator('[data-slot="text-part-meta-speed"]')
-
-  await page.evaluate(() => document.fonts.ready.then(() => undefined))
-  await expect(meta.locator('[data-slot="text-part-meta-item"]').last()).toHaveText("5m 2s")
-  await expect(speed).toHaveText("·60.0 tok/s")
-  await timeline.getByText("The timeline checks passed.", { exact: false }).hover()
-  await expect(footer).toHaveCSS("opacity", "1")
-  await expect(speed).toBeVisible()
+  await copy.hover()
+  await expect(details).toBeHidden()
 
   for (const width of [1000, 390]) {
     await page.setViewportSize({ width, height: 844 })
-    await timeline.getByText("The timeline checks passed.", { exact: false }).hover()
-    await expect(speed).toBeVisible()
-    expect(
-      await speed.evaluate((element) => {
-        const box = element.getBoundingClientRect()
+    await icon.hover()
+    await expect(details).toBeVisible()
+    const box = (await icon.boundingBox())!
 
-        const parent = element.parentElement!.getBoundingClientRect()
-
-        return box.left >= parent.left && box.right <= parent.right + 1
-      }),
-    ).toBe(true)
-    await footer.getByRole("button", { name: "Copy response", exact: true }).hover()
-    await expect(speed).toBeVisible()
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(width)
   }
 })
 
-story("omits turn speed when a model step has no streaming time", async ({ mount }) => {
+story("omits turn speed when a model step has no streaming time", async ({ mount, page }) => {
   const timeline = await mount("current-session-timeline-rows--response-speed", { args: { measured: false } })
+  const reply = timeline.locator('[data-component="text-part"]').filter({ hasText: "The timeline checks passed." })
+  const icon = reply.locator('[data-slot="text-part-agent"]')
 
-  const meta = timeline.locator('[data-slot="text-part-meta"]')
+  await icon.hover()
+  const details = page.getByRole("tooltip").filter({ hasText: "5m 2s" })
 
-  await timeline.getByText("The timeline checks passed.", { exact: false }).hover()
-  await meta.hover()
-  await expect(meta).toContainText("5m 2s")
-  await expect(meta.locator('[data-slot="text-part-meta-speed"]')).toHaveCount(0)
+  await expect(details).toBeVisible()
+  await expect(details).not.toContainText("tok/s")
 })
 
 story("keeps quote attachment icons fixed while long text truncates", async ({ mount, page }) => {
@@ -64,6 +64,72 @@ story("keeps quote attachment icons fixed while long text truncates", async ({ m
 
   expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
   await expect(label).toHaveCSS("text-overflow", "ellipsis")
+})
+
+story.describe("response footer", () => {
+  story.use({ timezoneId: "UTC" })
+
+  story("shows the turn's last completed step and its details", async ({ mount, page }) => {
+    const timeline = await mount("current-session-timeline-rows--response-speed", {
+      args: { trailingTool: true },
+    })
+
+    const reply = timeline.locator('[data-component="text-part"]').filter({ hasText: "The timeline checks passed." })
+    const footer = reply.locator('[data-slot="text-part-copy-wrapper"]')
+    const completed = footer.locator('[data-slot="text-part-completed-at"]')
+    const icon = footer.locator('[data-slot="text-part-agent"]')
+    const details = page.getByRole("tooltip").filter({ hasText: "Build" })
+    const timeTip = page.getByRole("tooltip").filter({ hasText: "Wednesday" })
+
+    // The trailing tool step completes later than the text, so its time names the turn's completion.
+    await expect(completed).toHaveText("Jan 1, 2025 12:05 AM")
+    await expect(completed).toHaveAttribute("datetime", "2025-01-01T00:05:05.000Z")
+    await expect(completed).toBeVisible()
+    await expect(icon).toBeVisible()
+    await expect(footer.locator('[data-slot="text-part-meta"]')).toHaveCount(0)
+
+    const iconBox = (await icon.boundingBox())!
+    const timeBox = (await completed.boundingBox())!
+
+    expect(iconBox.x).toBeLessThan(timeBox.x)
+
+    await completed.hover()
+    await expect(timeTip).toBeVisible()
+    await expect(timeTip).toContainText("Wednesday")
+    await expect(timeTip).toContainText("January 1, 2025")
+    await expect(timeTip).toContainText("12:05:05")
+    await expect(timeTip).toContainText("UTC")
+
+    await icon.hover()
+    await expect(details).toBeVisible()
+    await expect(details).toContainText("tok/s")
+  })
+
+  story("opens the agent and time details with the keyboard", async ({ mount, page }) => {
+    const timeline = await mount("current-session-timeline-rows--response-speed")
+    const reply = timeline.locator('[data-component="text-part"]').filter({ hasText: "The timeline checks passed." })
+    const footer = reply.locator('[data-slot="text-part-copy-wrapper"]')
+    const copy = footer.getByRole("button", { name: "Copy response", exact: true })
+    const details = page.getByRole("tooltip").filter({ hasText: "Build" })
+    const timeTip = page.getByRole("tooltip").filter({ hasText: "Wednesday" })
+
+    await copy.focus()
+    await expect(details).toBeHidden()
+    await expect(footer.locator('[data-slot="text-part-agent"] [data-slot="icon-svg"]')).not.toHaveClass(
+      /text-v2-agent/,
+    )
+
+    await page.keyboard.press("Tab")
+    await expect(details).toBeVisible()
+
+    await page.keyboard.press("Tab")
+    await expect(timeTip).toBeVisible()
+  })
+
+  story("omits the completion time while the turn streams", async ({ mount }) => {
+    const timeline = await mount("current-session-timeline-rows--streaming-reasoning-and-text")
+    await expect(timeline.locator('[data-slot="text-part-completed-at"]')).toHaveCount(0)
+  })
 })
 
 story.describe("message actions menu", () => {

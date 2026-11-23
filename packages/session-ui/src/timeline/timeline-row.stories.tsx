@@ -72,11 +72,11 @@ export const StreamingReasoningAndText = {
 }
 
 export const ResponseSpeed = {
-  args: { measured: true, steered: false },
-  render: (args: { measured: boolean; steered: boolean }) => (
+  args: { measured: true, steered: false, trailingTool: false },
+  render: (args: { measured: boolean; steered: boolean; trailingTool: boolean }) => (
     <CurrentSessionTimelineStory
       title="Response speed"
-      description="Hover the response to reveal tokens per second across both model steps."
+      description="Hover the agent icon to reveal the turn details across both model steps."
       width="720px"
       document={{
         sessionID: CURRENT_SESSION_ID,
@@ -125,7 +125,46 @@ export const ResponseSpeed = {
               completed: STORY_TIME + 302_000,
             },
           },
-          { id: "msg_speed_idle", type: "idle", outcome: "succeeded", time: { created: STORY_TIME + 302_000 } },
+          ...(args.trailingTool
+            ? [
+                {
+                  id: "msg_speed_tool",
+                  type: "assistant" as const,
+                  agent: "build",
+                  model: STORY_MODEL,
+                  content: [
+                    {
+                      type: "tool" as const,
+                      id: "tool_speed_shell",
+                      name: "shell",
+                      state: {
+                        status: "completed" as const,
+                        input: { command: "printf done" },
+                        content: [{ type: "text" as const, text: "done" }],
+                        metadata: {},
+                      },
+                      time: {
+                        created: STORY_TIME + 303_000,
+                        ran: STORY_TIME + 303_500,
+                        completed: STORY_TIME + 305_000,
+                      },
+                    },
+                  ],
+                  tokens: { input: 100, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+                  time: {
+                    created: STORY_TIME + 303_000,
+                    streamed: STORY_TIME + 304_000,
+                    completed: STORY_TIME + 305_000,
+                  },
+                },
+              ]
+            : []),
+          {
+            id: "msg_speed_idle",
+            type: "idle",
+            outcome: "succeeded",
+            time: { created: STORY_TIME + (args.trailingTool ? 305_000 : 302_000) },
+          },
         ],
       }}
     />

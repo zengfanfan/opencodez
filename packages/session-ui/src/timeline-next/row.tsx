@@ -21,6 +21,7 @@ import {
   type Accessor,
   type JSX,
 } from "solid-js"
+import { createStore } from "solid-js/store"
 import { DiffChanges } from "@opencode/ui/diff-changes"
 import { Icon } from "@opencode/ui/icon"
 import { Spring, frameLoop, prefersReducedMotion } from "@opencode/ui/motion"
@@ -101,6 +102,14 @@ export function createNextTimelineRowRenderer(input: {
   anchor?: (messageID: string) => string | undefined
   /** Scrolls to and expands the tool call named by its ID or by the shell ID a backgrounded shell call reports. */
   revealPart?: (target: string) => boolean
+  /** The timeline's scroll container, used to observe whether a prompt is in view. */
+  scroller?: Accessor<HTMLElement | undefined>
+  /** The sticky header height that covers the top of the scroll container. */
+  promptHeaderHeight?: Accessor<number>
+  /** Whether a user message row is in the virtualizer's rendered range. */
+  isUserMessageMounted?: (messageID: string) => boolean
+  /** Scrolls the timeline to a user message. */
+  revealMessage?: (messageID: string) => void
 }) {
   const i18n = useI18n()
   const data = useData()
@@ -108,6 +117,8 @@ export function createNextTimelineRowRenderer(input: {
   // Cached timelines retain file-change subgroup identities alongside their disclosure choices.
   const patchGroupKeys = input.disclosure.patchGroupKeys ?? new Map<string, string>()
   const patchPartKeys = new WeakMap<SessionMessageAssistant["content"][number], string>()
+
+  const [promptVisible, setPromptVisible] = createStore<Record<string, boolean | undefined>>({})
 
   const turns = createMemo(() => {
     const messages = [...input.projection.messageByID().values()]
@@ -275,7 +286,8 @@ export function createNextTimelineRowRenderer(input: {
 
   const phase = (messageID: string) => viewTurnPhase(input.projection.turnPhaseByID().get(messageID) ?? IDLE_TURN_PHASE)
 
-  const duration = (messageID: string) => {
+  // Duration and the footer's completion time both describe the turn's last completed step.
+  const lastCompletedStep = (messageID: string) => {
     const user = input.projection.messageByID().get(messageID)
 
     if (user?.type !== "user") return null
@@ -286,6 +298,14 @@ export function createNextTimelineRowRenderer(input: {
       ?.findLast((message) => message.time.completed !== undefined)
 
     if (message?.time.completed === undefined || message.time.completed < user.time.created) return undefined
+
+    return message
+  }
+
+  const duration = (messageID: string) => {
+    const message = lastCompletedStep(messageID)
+
+    if (!message) return message
 
     return SessionTurn.duration(turns().messages, message, {
       index: turns().indexes.get(message.id),
@@ -550,10 +570,12 @@ export function createNextTimelineRowRenderer(input: {
       return value.steps.length > 0 ? value : undefined
     })
 
+    const copyPartID = createMemo(() => copyContentID(row().userMessageID))
+
     const turnTokensPerSecond = createMemo(() => {
       const current = ref()
 
-      if (!current || copyContentID(row().userMessageID) !== current.partID) return undefined
+      if (!current || copyPartID() !== current.partID) return undefined
 
       const messages = input.projection.assistantMessagesByParent().get(row().userMessageID) ?? emptyAssistantMessages
 
@@ -567,6 +589,14 @@ export function createNextTimelineRowRenderer(input: {
       })
     })
 
+    const turnCompletedAt = createMemo(() => {
+      const current = ref()
+
+      if (!current || copyPartID() !== current.partID) return undefined
+
+      return lastCompletedStep(row().userMessageID)?.time.completed
+    })
+
     const disclosureKey = () => (content()?.type === "reasoning" ? ref()!.partID : row().group.key)
 
     return (
@@ -578,9 +608,18 @@ export function createNextTimelineRowRenderer(input: {
                 message={message()}
                 content={content()}
                 contentID={ref()!.partID}
-                showAssistantCopyPartID={copyContentID(row().userMessageID)}
+                showAssistantCopyPartID={copyPartID()}
                 turnDurationMs={duration(row().userMessageID)}
                 turnTokensPerSecond={turnTokensPerSecond()}
+                turnCompletedAt={turnCompletedAt()}
+                isPromptVisible={() => {
+                  if (input.isUserMessageMounted && !input.isUserMessageMounted(row().userMessageID)) return false
+
+                  return promptVisible[row().userMessageID] ?? true
+                }}
+                onJumpToPrompt={
+                  input.revealMessage ? () => input.revealMessage!(row().userMessageID) : undefined
+                }
                 sources={turnSourcesValue()}
                 onOpenSources={() => sourcesHost?.open(row().userMessageID)}
                 defaultOpen={defaultOpen()}
@@ -666,27 +705,80 @@ export function createNextTimelineRowRenderer(input: {
     return gaps().get(TimelineRow.key(row))
   }
 
-  const Frame = (props: { row: FramedTimelineRow; grow?: boolean; children: JSX.Element }) => (
-    <div
-      ref={(el) => {
-        if (props.grow) growIn(el, () => grown(props.row.userMessageID))
-        onCleanup(trackNestedRails(el))
-      }}
-      id={Predicate.isTagged(props.row, "UserMessage") ? input.anchor?.(props.row.userMessageID) : undefined}
-      data-message-id={props.row.userMessageID}
-      data-timeline="next"
-      data-timeline-row={props.row._tag}
-      data-timeline-gap={gap(props.row)}
-      classList={{
-        "min-w-0 w-full max-w-full": true,
-        "md:max-w-session md:mx-auto": input.centered?.(),
-      }}
-    >
-      <div data-component="session-turn" class="min-w-0 w-full relative" style={{ height: "auto" }}>
-        {props.children}
+  const Frame = (props: { row: FramedTimelineRow; grow?: boolean; children: JSX.Element }) => {
+    const [frame, setFrame] = createSignal<HTMLDivElement>()
+    const [target, setTarget] = createSignal<HTMLElement>()
+
+    const resolveTarget = () => {
+      const element = frame()
+
+      if (!element) return
+
+      const found = element.querySelector<HTMLElement>('[data-component="user-message"]')
+
+      setTarget(found ?? element)
+
+      if (found) return
+
+      queueMicrotask(() => {
+        if (frame() !== element) return
+        const child = element.querySelector<HTMLElement>('[data-component="user-message"]')
+
+        if (child) setTarget(child)
+      })
+    }
+
+    createEffect(() => {
+      if (!Predicate.isTagged(props.row, "UserMessage")) return
+      const scroller = input.scroller?.()
+      const header = input.promptHeaderHeight?.() ?? 0
+      const observed = target()
+
+      if (!scroller || !observed || !observed.isConnected || observed.offsetHeight === 0) return
+
+      const observer = new IntersectionObserver(
+        ([entry]) => setPromptVisible(props.row.userMessageID, entry.isIntersecting),
+        { root: scroller, rootMargin: `-${header}px 0px 0px 0px`, threshold: 0 },
+      )
+
+      observer.observe(observed)
+
+      // A Frame fallback includes row padding; wait for the user-message target before writing the first value.
+      if (observed !== frame()) {
+        const box = scroller.getBoundingClientRect()
+        const rect = observed.getBoundingClientRect()
+
+        setPromptVisible(props.row.userMessageID, rect.bottom > box.top + header && rect.top < box.bottom)
+      }
+
+      onCleanup(() => observer.disconnect())
+    })
+
+    return (
+      <div
+        ref={(el) => {
+          setFrame(el)
+          resolveTarget()
+
+          if (props.grow) growIn(el, () => grown(props.row.userMessageID))
+          onCleanup(trackNestedRails(el))
+        }}
+        id={Predicate.isTagged(props.row, "UserMessage") ? input.anchor?.(props.row.userMessageID) : undefined}
+        data-message-id={props.row.userMessageID}
+        data-timeline="next"
+        data-timeline-row={props.row._tag}
+        data-timeline-gap={gap(props.row)}
+        classList={{
+          "min-w-0 w-full max-w-full": true,
+          "md:max-w-session md:mx-auto": input.centered?.(),
+        }}
+      >
+        <div data-component="session-turn" class="min-w-0 w-full relative" style={{ height: "auto" }}>
+          {props.children}
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   function Notice(props: { messageID: string; grouped?: boolean }) {
     const inset = () => (props.grouped ? "" : padding())

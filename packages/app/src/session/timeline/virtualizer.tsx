@@ -1369,6 +1369,24 @@ export function createTimelineVirtualizer(input: Input) {
     )
   }
 
+  const userMessageRowKeys = createMemo(() => {
+    const keys = new Map<string, string>()
+
+    for (const row of rows()) {
+      if (Predicate.isTagged(row, "UserMessage")) keys.set(row.userMessageID, TimelineRow.key(row))
+    }
+
+    return keys
+  })
+
+  const mountedRowKeys = createMemo(() => new Set(virtualRowKeys()))
+
+  const isUserMessageMounted = (messageID: string) => {
+    const key = userMessageRowKeys().get(messageID)
+
+    return !!key && mountedRowKeys().has(key)
+  }
+
   onCleanup(() => {
     cache.delete(ownerSessionKey)
     cache.set(ownerSessionKey, {
@@ -1399,7 +1417,10 @@ export function createTimelineVirtualizer(input: Input) {
         setToolOpen(key, open)
       },
     },
+    isUserMessageMounted,
+    promptHeaderHeight: () => (input.showHeader() ? headerHeight() : 0),
     revealPart,
+    scrollElement: listRoot,
     View,
   }
 }

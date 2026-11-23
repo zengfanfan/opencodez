@@ -88,14 +88,20 @@ for (const visible of [false, true]) {
     await user.scrollIntoViewIfNeeded()
     await user.hover()
     await page.screenshot({ path: testInfo.outputPath(`agents-${visible ? "on" : "off"}.png`) })
-    await assistant.hover()
 
-    const meta = [user.locator('[data-slot="user-message-meta"]'), assistant.locator('[data-slot="text-part-meta"]')]
+    const userMeta = user.locator('[data-slot="user-message-meta"]')
+    const assistantIcon = assistant.locator('[data-slot="text-part-agent"]')
+    const assistantDetails = assistantIcon.locator(".sr-only")
 
-    for (const item of meta) {
-      // A delivered message keeps its hidden Pending label in the DOM, so read only the rendered text.
-      if (visible) await expect(item).toContainText(/^Build\s*·/, { useInnerText: true })
-      else await expect(item).not.toContainText("Build")
+    await expect(assistantIcon).toBeVisible()
+
+    // A delivered message keeps its hidden Pending label in the DOM, so read only the rendered text.
+    if (visible) {
+      await expect(userMeta).toContainText(/^Build\s*·/, { useInnerText: true })
+      await expect(assistantDetails).toContainText(/^Build/)
+    } else {
+      await expect(userMeta).not.toContainText("Build")
+      await expect(assistantDetails).not.toContainText("Build")
     }
   })
 }

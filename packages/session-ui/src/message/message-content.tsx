@@ -58,7 +58,10 @@ import type {
   SessionMessageUser,
 } from "@opencode/client/promise"
 import type { SessionUserActions, SessionUserAttachmentReference, SessionUserComment } from "../actions"
+import { agentIcon } from "./agent-icon"
 import { agentLabel } from "./agent-label"
+import { formatMetaText, type MetaItem } from "./message-meta"
+import { messageTime, messageTimeDetail } from "./message-time"
 import { isInterruptedError } from "../timeline/turn-phase-machine"
 import { attached, typeLabel } from "../components/message-file"
 import {
@@ -94,8 +97,6 @@ import {
   type PacedTextEvent,
 } from "./paced-text-machine"
 import { createCopyFeedback, writeClipboard } from "../components/copy"
-
-type MetaItem = { label: string; variant?: boolean }
 
 // The variant follows the model name without a separator, so the model leads.
 function modelItems(data: ReturnType<typeof useData>, model: SessionMessageAssistant["model"]): MetaItem[] {
@@ -312,30 +313,7 @@ export function CurrentUserMessageDisplay(props: {
     return agent ? [{ label: agent }] : []
   })
 
-  // The menu names the day relatively: Today and Yesterday, then the date this year, then the date with its year.
-  const sent = createMemo(() => {
-    const created = new Date(props.message.time.created)
-    const now = new Date()
-    const midnight = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
-    const days = Math.round((midnight(now) - midnight(created)) / 86_400_000)
-    const time = new Intl.DateTimeFormat(i18n.locale(), { timeStyle: "short" }).format(created)
-
-    if (days === 0 || days === 1) {
-      const day = new Intl.RelativeTimeFormat(i18n.locale(), { numeric: "auto" }).format(-days, "day")
-
-      return `${day[0]?.toLocaleUpperCase(i18n.locale())}${day.slice(1)}, ${time}`
-    }
-
-    if (created.getFullYear() === now.getFullYear())
-      return new Intl.DateTimeFormat(i18n.locale(), {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      }).format(created)
-
-    return new Intl.DateTimeFormat(i18n.locale(), { dateStyle: "medium", timeStyle: "short" }).format(created)
-  })
+  const sent = createMemo(() => messageTime(props.message.time.created, i18n.locale(), "menu"))
 
   // A waiting steer reads agent · model · Pending; mobile shows the agent and model in the composer instead.
   const metaLabels = createMemo(() => (mobile() ? [] : [...agentItems(), ...modelItems(data, props.model)]))
@@ -1140,6 +1118,12 @@ export function AssistantTextContent(props: {
   showCopy: boolean
   turnDurationMs?: number | null
   turnTokensPerSecond?: number
+  /** When the turn's last completed assistant step finished, shown at rest beside the Copy button. */
+  turnCompletedAt?: number
+  /** Whether the prompt that started this turn is in the timeline viewport. */
+  isPromptVisible?: () => boolean
+  /** Scrolls the timeline back to the prompt that started this turn. */
+  onJumpToPrompt?: () => void
   /** The finished turn's web searches and fetches, shown as a chip in its footer. */
   sources?: TurnSources
   onOpenSources?: () => void
@@ -1184,11 +1168,22 @@ export function AssistantTextContent(props: {
     })
   })
 
-  // Mobile omits the per-response agent and model; see CurrentUserMessageDisplay.
-  const mobile = createMediaQuery("(max-width: 767px)")
+  const completedAt = createMemo(() => {
+    const at = props.turnCompletedAt
+
+    if (at === undefined) return undefined
+
+    return { at, label: messageTime(at, i18n.locale(), "reply") }
+  })
+
+  const completedDetail = createMemo(() => {
+    const value = completedAt()
+
+    return value ? messageTimeDetail(value.at, i18n.locale()) : ""
+  })
 
   const meta = createMemo<MetaItem[]>(() => [
-    ...(mobile() ? [] : labels()),
+    ...labels(),
     ...[duration(), interrupted() ? i18n.t("ui.message.interrupted") : ""].flatMap((label) =>
       label ? [{ label }] : [],
     ),
@@ -1205,7 +1200,28 @@ export function AssistantTextContent(props: {
     })
   })
 
+  const agentDetails = createMemo(() => formatMetaText(meta(), speed()) || i18n.t("ui.message.agentDetails"))
+
+  const hoverNone = createMediaQuery("(hover: none)")
+  const [timeFocus, setTimeFocus] = createSignal(false)
+  const [agentFocus, setAgentFocus] = createSignal(false)
+  const [agentTipOpen, setAgentTipOpen] = createSignal(false)
+  const [lastPointer, setLastPointer] = createSignal<"touch" | "mouse" | "other">("other")
+
   const copy = createCopyFeedback()
+
+  createEffect(() => {
+    if (!agentTipOpen()) return
+
+    const close = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest('[data-slot="text-part-agent"]')) return
+
+      setAgentTipOpen(false)
+    }
+
+    document.addEventListener("pointerdown", close, true)
+    onCleanup(() => document.removeEventListener("pointerdown", close, true))
+  })
 
   return (
     <Show when={props.text}>
@@ -1241,18 +1257,83 @@ export function AssistantTextContent(props: {
           onClick={() => copy.copy(props.text)}
           aria-label={copy.copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
         />
-        <Show when={meta().length > 0}>
-          <span data-slot="text-part-meta">
-            <MetaItems items={meta()} slot="text-part" />
-            <Show when={speed()}>
-              {(label) => (
-                <span data-slot="text-part-meta-speed">
-                  <span aria-hidden="true">{"\u00B7"}</span>
-                  <span dir="auto">{label()}</span>
-                </span>
-              )}
-            </Show>
+        <Tooltip
+          value={agentDetails()}
+          appearance="compact"
+          placement="top"
+          forceOpen={agentTipOpen() || agentFocus() ? true : undefined}
+          openDelay={agentTipOpen() || agentFocus() ? 0 : 600}
+        >
+          <span
+            data-slot="text-part-agent"
+            tabIndex={hoverNone() ? undefined : 0}
+            onPointerDown={(event) => setLastPointer(event.pointerType === "touch" ? "touch" : "mouse")}
+            onPointerUp={(event) => {
+              if (event.pointerType !== "touch") return
+
+              setAgentTipOpen((open) => !open)
+            }}
+            onFocus={(event) => {
+              if (lastPointer() === "touch") {
+                setLastPointer("other")
+
+                return
+              }
+
+              if (event.currentTarget.matches(":focus-visible")) setAgentFocus(true)
+            }}
+            onBlur={() => setAgentFocus(false)}
+          >
+            <span class="sr-only">{agentDetails()}</span>
+            <Icon name={agentIcon(props.message.agent)} size="small" />
           </span>
+        </Tooltip>
+        <Show when={completedAt()}>
+          {(value) => (
+            <Tooltip
+              value={completedDetail()}
+              appearance="standard"
+              placement="top"
+              inactive={hoverNone()}
+              forceOpen={timeFocus() ? true : undefined}
+              openDelay={timeFocus() ? 0 : 600}
+            >
+              <time
+                data-slot="text-part-completed-at"
+                dateTime={new Date(value().at).toISOString()}
+                dir="auto"
+                tabIndex={hoverNone() ? undefined : 0}
+                aria-label={completedDetail()}
+                onPointerDown={(event) =>
+                  setLastPointer(event.pointerType === "touch" ? "touch" : "mouse")
+                }
+                onFocus={(event) => {
+                  if (lastPointer() === "touch") {
+                    setLastPointer("other")
+
+                    return
+                  }
+
+                  if (event.currentTarget.matches(":focus-visible")) setTimeFocus(true)
+                }}
+                onBlur={() => setTimeFocus(false)}
+              >
+                {value().label}
+              </time>
+            </Tooltip>
+          )}
+        </Show>
+        <Show when={props.onJumpToPrompt && props.isPromptVisible && !props.isPromptVisible()}>
+          <Tooltip appearance="compact" value={i18n.t("ui.message.jumpToPrompt")} placement="top" gutter={4}>
+            <IconButton
+              icon={<Icon name="arrow-up" />}
+              size="small"
+              variant="ghost-muted"
+              aria-label={i18n.t("ui.message.jumpToPrompt")}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => props.onJumpToPrompt?.()}
+            />
+          </Tooltip>
         </Show>
       </div>
     )

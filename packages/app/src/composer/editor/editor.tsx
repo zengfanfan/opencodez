@@ -30,6 +30,7 @@ import { Keybind } from "@opencode/ui/keybind"
 import { Menu } from "@opencode/ui/menu"
 import { MenuScroll } from "@opencode/ui/menu-scroll"
 import { Tooltip } from "@opencode/ui/tooltip"
+import { agentIcon, agentTone } from "@opencode/session-ui/agent-icon"
 import { AttachmentCard } from "@opencode/session-ui/attachment-card"
 import { useMarkdown } from "@opencode/session-ui/context/markdown"
 import { ProgressCircle } from "@opencode/ui/progress-circle"
@@ -1119,16 +1120,6 @@ function pointerFocusReturn() {
 }
 
 // A click cycles the primary agents in list order; with the default Build/Plan list that is a two-way toggle.
-const agentIcons = new Map([
-  ["plan", "post-skill"],
-  ["build", "flask"],
-])
-
-const agentTones = new Map([
-  ["plan", "text-v2-agent-plan-solid"],
-  ["build", "text-v2-agent-build-solid"],
-])
-
 function ComposerEditorAgentToggle(props: { control: ComposerSelectControl }) {
   const i18n = useI18n()
   const current = () => props.control.current()
@@ -1164,7 +1155,7 @@ function ComposerEditorAgentToggle(props: { control: ComposerSelectControl }) {
         variant="ghost-muted"
         size="large"
         aria-label={label()}
-        icon={<Icon name={agentIcons.get(current()) ?? "outline-brain"} class={agentTones.get(current())} />}
+        icon={<Icon name={agentIcon(current())} class={agentTone(current())} />}
         onClick={() => {
           const item = next()
 

@@ -625,6 +625,42 @@
     user-select: none;
   }
 
+  [data-slot="text-part-completed-at"] {
+    flex: none;
+    white-space: nowrap;
+    font-family: var(--v2-font-family-sans);
+    font-size: 12px;
+    font-weight: 440;
+    line-height: 18px;
+    letter-spacing: 0.05px;
+    color: var(--v2-text-text-faint);
+    font-variant-numeric: tabular-nums;
+    cursor: default;
+    user-select: none;
+
+    &:focus-visible {
+      outline: 1px solid var(--v2-text-text-accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+  }
+
+  [data-slot="text-part-agent"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 20px;
+    height: 20px;
+    cursor: default;
+
+    &:focus-visible {
+      outline: 1px solid var(--v2-text-text-accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+  }
+
   [data-slot="text-part-meta-item"] {
     min-width: 0;
     overflow: hidden;

@@ -20,6 +20,9 @@ export function AssistantContent(props: {
   showAssistantCopyPartID?: string | null
   turnDurationMs?: number | null
   turnTokensPerSecond?: number
+  turnCompletedAt?: number
+  isPromptVisible?: () => boolean
+  onJumpToPrompt?: () => void
   sources?: TurnSources
   onOpenSources?: () => void
   defaultOpen?: boolean
@@ -39,6 +42,9 @@ export function AssistantContent(props: {
             showCopy={props.showAssistantCopyPartID === props.contentID}
             turnDurationMs={props.turnDurationMs}
             turnTokensPerSecond={props.turnTokensPerSecond}
+            turnCompletedAt={props.turnCompletedAt}
+            isPromptVisible={props.isPromptVisible}
+            onJumpToPrompt={props.onJumpToPrompt}
             sources={props.sources}
             onOpenSources={props.onOpenSources}
           />
