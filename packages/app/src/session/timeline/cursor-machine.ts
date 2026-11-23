@@ -343,6 +343,10 @@ function hashApplied(
 
   if (event.hash) return changed({ status: "none", attempt }, [{ type: "anchor.scroll", id: event.hash }])
 
+  // The first scroll of a session belongs to the timeline's activation, which also restores a saved offset. Later
+  // hashless applies are explicit navigation back to the end.
+  if (state.initial && !event.reveal) return changed({ status: "none", attempt }, NO_EFFECTS)
+
   return changed({ status: "none", attempt }, event.reveal ? NO_EFFECTS : [FOLLOW_END])
 }
 

@@ -178,6 +178,9 @@ export function createSessionTimelineInteraction(session: SessionModel, visible:
     revealing: () => !!follow.anchor() || !!routeRevealTarget(revealState()),
   })
 
+  // A route reveal or a hash target still being applied owns the position until it lands.
+  const navigating = () => !!routeRevealTarget(revealState()) || cursor.navigating()
+
   let resumeFrame: (() => void) | undefined
 
   const resume = (behavior?: ScrollBehavior) => {
@@ -359,17 +362,6 @@ export function createSessionTimelineInteraction(session: SessionModel, visible:
   createEffect(
     on(session.identity.sessionKey, () => setState("scroll", { overflow: false, jump: false }), { defer: true }),
   )
-  createEffect(
-    on(
-      () => session.identity.params.id,
-      (id, previous) => {
-        // A switch resets the cursor, so only a `#message-<id>` or other hash can hold the new session elsewhere.
-        if (!id || !previous || id === previous || location.hash) return
-        follow.dispatch({ type: "follow" })
-        scrollToEnd()
-      },
-    ),
-  )
   createEffect(() => {
     const id = session.identity.params.id
 
@@ -400,7 +392,7 @@ export function createSessionTimelineInteraction(session: SessionModel, visible:
 
       setState("inset", next)
 
-      if (stick) scrollToEnd()
+      if (stick && !navigating()) scrollToEnd()
 
       if (scroller) scheduleScrollState(scroller)
       requestFill()
@@ -428,6 +420,7 @@ export function createSessionTimelineInteraction(session: SessionModel, visible:
       setActiveMessage,
     },
     inset: () => state.inset,
+    navigating,
     lastUserMessage: timeline.lastUserMessage,
     resource: timeline.resource,
     ready: timeline.ready,

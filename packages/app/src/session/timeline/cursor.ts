@@ -189,10 +189,19 @@ export function createTimelineCursor(input: {
     if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual"
   })
 
+  // A hash keeps a target through the selection, so only the active apply/pending/seek is navigation.
+  const navigating = () => {
+    if (!location.hash) return false
+    const state = cursorState()
+
+    return state.status === "applying" || state.status === "pending" || (state.status === "selected" && !!state.seek)
+  }
+
   onCleanup(() => dispatch(DISPOSED_CURSOR_EVENT))
 
   return {
     state: cursorState,
+    navigating,
     dispatch,
     clear,
     jump: (messageID: string, behavior: ScrollBehavior) =>

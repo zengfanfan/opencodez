@@ -304,6 +304,7 @@ function SessionScreenContent(props: {
             setScrollRef={timeline.view.setScrollRef}
             onScheduleScrollState={timeline.view.scheduleScrollState}
             follow={timeline.follow}
+            navigating={timeline.navigating}
             onUserScroll={timeline.view.markUserScroll}
             onHistoryScroll={timeline.view.onHistoryScroll}
             centered={screen.centered()}

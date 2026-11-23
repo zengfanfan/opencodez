@@ -99,6 +99,74 @@ test("paints cold and warm session tabs at the latest message", async ({ page })
   expect(await warm.stop()).toBe(0)
 })
 
+test("restores a detached timeline across a tab switch and does not follow new messages", async ({ page }) => {
+  const mock = await openTabs(page, {
+    pageMessages: (id) => ({ items: fixture.messages[id] ?? [] }),
+  })
+
+  await installTimelineSettings(page)
+  await page.goto(sessionHref(fixture.sourceID))
+  await expectAtTail(page, fixture.expected.sourceMessageIDs.at(-1)!)
+
+  const scroller = page.locator(".scroll-view__viewport", { has: page.locator("[data-timeline-row]") })
+  await scroller.hover()
+  await page.mouse.wheel(0, -2_500)
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible()
+
+  const visibleUserIDs = () =>
+    page.locator('[data-timeline-row="UserMessage"]').evaluateAll((rows) => {
+      const viewport = rows[0]?.closest(".scroll-view__viewport")
+
+      if (!viewport) return []
+      const bounds = viewport.getBoundingClientRect()
+
+      return rows.flatMap((row) => {
+        const rect = row.getBoundingClientRect()
+        const id = row.getAttribute("data-message-id")
+
+        return id && rect.bottom > bounds.top && rect.top < bounds.bottom ? [id] : []
+      })
+    })
+
+  const before = await visibleUserIDs()
+  expect(before.length).toBeGreaterThan(0)
+
+  await tab(page, fixture.targetID).click()
+  await expectAtTail(page, fixture.expected.targetMessageIDs.at(-1)!)
+
+  const sourceMessages = fixture.messages[fixture.sourceID] ?? []
+
+  const answer = sourceMessages.findLast(
+    (message) => message.type === "assistant" && message.content.some((part) => part.type === "text"),
+  )
+
+  if (!answer) throw new Error("source answer missing")
+  await mock.push([
+    {
+      id: "evt_detached_text",
+      created: 4,
+      type: "session.text.ended",
+      location: { directory: fixture.directory },
+      durable: { aggregateID: fixture.sourceID, seq: 0, version: 1 },
+      data: {
+        sessionID: fixture.sourceID,
+        assistantMessageID: answer.id,
+        ordinal: 0,
+        text: "Updated while detached",
+      },
+    },
+  ])
+
+  await tab(page, fixture.sourceID).click()
+  await expect.poll(async () => (await visibleUserIDs()).some((id) => before.includes(id))).toBe(true)
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible()
+  await expect(page.getByText("Updated while detached", { exact: true })).not.toBeInViewport()
+
+  await page.getByRole("button", { name: "Jump to latest" }).click()
+  await expectAtTail(page, fixture.expected.sourceMessageIDs.at(-1)!)
+  await expect(page.getByText("Updated while detached", { exact: true })).toBeInViewport()
+})
+
 test("reloads a transcript only after inline file links have their final styling", async ({ page }) => {
   const sessionID = "ses_cold_inline_paths"
   await mockWorkspace(page, {

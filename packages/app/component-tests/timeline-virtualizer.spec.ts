@@ -193,6 +193,9 @@ for (const input of [
       await expect(root.getByTestId("timeline-controls")).toHaveAttribute("data-pinned", "false")
     }
 
+    const detachedTop = input.name === "offset-only" ? Number(await root.getAttribute("data-last-scroll-top")) : 0
+    const expectedReveal = input.name === "offset-only" ? { ...input.reveal, scrollTop: detachedTop } : input.reveal
+
     if (input.name === "zero-height") {
       await root.getByRole("button", { name: "Hide viewport", exact: true }).click()
       // Wait for ResizeObserver to clear the actual range, not just for display:none.
@@ -210,12 +213,12 @@ for (const input of [
       pendingMarkdown: 0,
       clipped: [],
       viewportHeight: 180,
-      ...input.reveal,
+      ...expectedReveal,
     })
 
     if (input.name === "offset-only") {
-      // This repair must not depend on another native scroll or resize delivery.
-      await expect(root).toHaveAttribute("data-scrolls", "0")
+      // The restore schedules its own scroll-state update; it must not wait for another native scroll.
+      await expect(root).toHaveAttribute("data-scrolls", "1")
       await expect(root).toHaveAttribute("data-viewport-resizes", resizes!)
     }
   })

@@ -53,11 +53,13 @@ import {
   CONTACT_LOST_EVENT,
   defersAdjustments,
   END_EPSILON,
+  isFollowing,
   isTouchHeld,
   MIN_OVERFLOW,
   needsEndProbe,
   ZOOM_SLACK,
 } from "./machine"
+import { selectScrollRestore, type ScrollRecord, type ScrollRestore } from "./scroll-record"
 
 const fallbackItemSize = 60
 
@@ -106,6 +108,8 @@ type Input = {
   showHeader: Accessor<boolean>
   /** Whether the timeline follows the newest content. Drives every anchoring decision. */
   follow: TimelineFollow
+  /** A hash target or route reveal is still being applied. */
+  navigating?: Accessor<boolean>
   scroll: Accessor<{ overflow: boolean; jump: boolean }>
   onResumeScroll: (behavior?: ScrollBehavior) => void
   setScrollRef: (element: HTMLDivElement | undefined) => void
@@ -155,6 +159,7 @@ export function createTimelineVirtualizer(input: Input) {
   const entry = cache.get(ownerSessionKey)
   const cached = entry?.presentationKey === input.presentationKey?.() ? entry : undefined
   const initialMeasurements = cached?.measurements
+  const presentation = createMemo(() => input.presentationKey?.() ?? "")
 
   const [coldMount, setColdMount] = createSignal(
     createColdMountState(!initialMeasurements?.length && input.follow.following()),
@@ -273,6 +278,15 @@ export function createTimelineVirtualizer(input: Input) {
     },
   )
   let scrollTop = 0
+  // The reader's last position while this view is cached. A route switch detaches the view, so only this record keeps
+  // the place; the record dies with the cached view and then the timeline starts at the newest message again.
+  const saved: ScrollRecord = { following: true, offset: 0, presentationKey: presentation() }
+  let restorePending: ScrollRestore | undefined
+  let restoringScroll = false
+  let restoreGuardFrame: number | undefined
+  let navigationCheckFrame: number | undefined
+  let navigationTimerExtensions = 0
+  let activationHandled = false
   // Reused for every scroll: the transition only reads it, so a scroll allocates nothing.
   const scrollEvent = { type: "scroll" as const, scrollTop: 0, previousTop: 0, maxScroll: 0, previousMaxScroll: 0 }
   const intentEvent = { type: "scroll.intent" as const, upward: false, overflow: false }
@@ -335,13 +349,19 @@ export function createTimelineVirtualizer(input: Input) {
         dispatchCold(CHECK_REQUESTED)
       }
 
-      return observeElementOffsetReconnectAware(instance, reportOffset, () => {
-        if (!active()) return
-        virtualContent?.querySelectorAll<HTMLDivElement>("[data-index]").forEach(virtualizer.measureElement)
+      return observeElementOffsetReconnectAware(
+        instance,
+        reportOffset,
+        () => {
+          if (!active()) return
+          virtualContent?.querySelectorAll<HTMLDivElement>("[data-index]").forEach(virtualizer.measureElement)
 
-        if (input.follow.following()) virtualizer.scrollToEnd()
-        dispatchCold(CHECK_REQUESTED)
-      })
+          // A reveal's anchor owns its row; otherwise the record restores the reader's place or the end.
+          if (!input.follow.anchor()) applyRestore(selectScrollRestore(saved, presentation()))
+          dispatchCold(CHECK_REQUESTED)
+        },
+        () => !input.navigating?.(),
+      )
     },
     initialOffset: () => (input.follow.following() ? Number.MAX_SAFE_INTEGER : 0),
     initialMeasurementsCache: initialMeasurements,
@@ -404,6 +424,65 @@ export function createTimelineVirtualizer(input: Input) {
       return rangeExtractor()
     },
   })
+
+  function restoreScrollOffset(offset: number) {
+    const root = listRoot()
+
+    if (!root || root.clientHeight === 0) return
+    const top = Math.max(0, Math.min(offset, root.scrollHeight - root.clientHeight))
+    restoringScroll = true
+
+    if (root.scrollTop !== top) root.scrollTop = top
+    reportOffset?.(root.scrollTop, false)
+    input.onScheduleScrollState(root)
+    saved.offset = root.scrollTop
+
+    if (restoreGuardFrame !== undefined) cancelAnimationFrame(restoreGuardFrame)
+    restoreGuardFrame = requestAnimationFrame(() => {
+      restoreGuardFrame = undefined
+      restoringScroll = false
+    })
+  }
+
+  function applyRestore(decision: ScrollRestore) {
+    const navigating = input.navigating?.() === true
+
+    if (decision.type === "offset" || navigating) {
+      input.follow.dispatch({ type: "release" })
+      input.follow.dispatch({ type: "detach" })
+    } else {
+      input.follow.dispatch({ type: "follow" })
+    }
+
+    saved.following = decision.type === "end"
+
+    if (decision.type === "offset") return restoreScrollOffset(decision.offset)
+
+    if (navigating) {
+      const placeholder = saved.offset > 0 ? saved.offset : (virtualizer.scrollOffset ?? 0)
+
+      if (placeholder > 0) restoreScrollOffset(placeholder)
+
+      return
+    }
+
+    if (input.follow.following()) virtualizer.scrollToEnd()
+  }
+
+  function cancelNavigationCheck() {
+    if (navigationCheckFrame === undefined) return
+    cancelAnimationFrame(navigationCheckFrame)
+    navigationCheckFrame = undefined
+  }
+
+  function scheduleNavigationCheck() {
+    if (navigationCheckFrame !== undefined) cancelAnimationFrame(navigationCheckFrame)
+    navigationCheckFrame = requestAnimationFrame(() => {
+      navigationCheckFrame = undefined
+
+      if (active() && coldHidden()) dispatchCold(CHECK_REQUESTED)
+    })
+  }
 
   const resizeItem = virtualizer.resizeItem
   const pendingSizes = new Map<number, { key: string; size: number }>()
@@ -638,7 +717,20 @@ export function createTimelineVirtualizer(input: Input) {
 
       if (reveal) input.reveal?.consume(reveal.entryKey)
 
-      if (!revealed && input.follow.following()) virtualizer.scrollToEnd()
+      if (activationHandled) {
+        reportOffset?.(root.scrollTop, false)
+
+        return
+      }
+
+      activationHandled = true
+
+      if (revealed) {
+        restorePending = undefined
+      } else {
+        applyRestore(restorePending ?? selectScrollRestore(saved, presentation()))
+        restorePending = undefined
+      }
 
       reportOffset?.(root.scrollTop, false)
       dispatchCold(CHECK_REQUESTED)
@@ -791,7 +883,18 @@ export function createTimelineVirtualizer(input: Input) {
 
     if (effect.type === "timer.start") {
       clearTimeout(revealTimer)
-      revealTimer = setTimeout(() => dispatchCold({ type: "timeout", attempt: effect.attempt }), COLD_REVEAL_TIMEOUT)
+      revealTimer = setTimeout(() => {
+        // A cold target being applied must not reveal the reset offset; give it one bounded extra window.
+        if (input.navigating?.() && navigationTimerExtensions < 1) {
+          navigationTimerExtensions += 1
+          dispatchCold(CHECK_REQUESTED)
+          runColdEffect({ type: "timer.start", attempt: effect.attempt })
+
+          return
+        }
+
+        dispatchCold({ type: "timeout", attempt: effect.attempt })
+      }, COLD_REVEAL_TIMEOUT)
 
       return
     }
@@ -831,6 +934,9 @@ export function createTimelineVirtualizer(input: Input) {
 
     if (!virtualContent?.isConnected || !root || virtualContent.querySelector(pendingMarkdown) || !root.clientHeight)
       return "waiting"
+
+    // A hash/reveal target is still being applied; revealing now would paint the reset native offset first.
+    if (input.navigating?.()) return "waiting"
     // Markdown can finish before ResizeObserver delivers its new box. The
     // normal measureElement path skips reads while scrolling; this gate needs
     // current boxes before expanding the estimated range or revealing it.
@@ -867,13 +973,44 @@ export function createTimelineVirtualizer(input: Input) {
       (value) => {
         dispatchCold(value ? ACTIVATED : DEACTIVATED)
 
-        if (value) return
+        if (value) {
+          const decision = selectScrollRestore(saved, presentation())
+          const navigating = input.navigating?.() === true
+          saved.following = decision.type === "end"
+          restorePending = decision
+          activationHandled = false
+          navigationTimerExtensions = 0
+
+          if (decision.type === "offset" || navigating) {
+            input.follow.dispatch({ type: "release" })
+            input.follow.dispatch({ type: "detach" })
+          } else {
+            input.follow.dispatch({ type: "follow" })
+          }
+
+          return
+        }
+
+        restorePending = undefined
+        activationHandled = false
+        cancelNavigationCheck()
         // A view that goes inactive mid-touch never sees its finger lift; its translation would outlive the gesture.
         clearTouchTarget()
         flushTouchAdjustment()
         setRendering("scrollAdjustment", 0)
 
         if (input.sessionKey() === ownerSessionKey) input.follow.dispatch(CONTACT_LOST_EVENT)
+      },
+      { defer: true },
+    ),
+  )
+  // A cold target that did not scroll still needs a fresh sample once navigation ends.
+  createEffect(
+    on(
+      () => input.navigating?.() === true,
+      (navigating, previous) => {
+        if (!previous || navigating || !coldHidden()) return
+        scheduleNavigationCheck()
       },
       { defer: true },
     ),
@@ -1022,6 +1159,8 @@ export function createTimelineVirtualizer(input: Input) {
     document.addEventListener("visibilitychange", loseHiddenContact)
   })
   onCleanup(() => {
+    if (restoreGuardFrame !== undefined) cancelAnimationFrame(restoreGuardFrame)
+    cancelNavigationCheck()
     window.removeEventListener("pointerup", releasePointer)
     window.removeEventListener("pointercancel", releasePointer)
     window.removeEventListener("blur", loseContact)
@@ -1050,6 +1189,11 @@ export function createTimelineVirtualizer(input: Input) {
     scrollEvent.scrollTop = scrollTop
     scrollEvent.maxScroll = maxScroll
     input.follow.dispatch(scrollEvent)
+    saved.offset = root.scrollTop + rendering.scrollAdjustment
+    saved.presentationKey = presentation()
+
+    // The restore's own scroll must not turn a following record into a detached one; the next real scroll will.
+    if (!restoringScroll) saved.following = isFollowing(input.follow.peek())
     dispatchCold(CHECK_REQUESTED)
     input.onScheduleScrollState(root)
     input.onHistoryScroll()

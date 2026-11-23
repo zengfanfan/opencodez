@@ -69,6 +69,46 @@ test("reports a divergent native offset once and ignores equal offsets and unrel
   }
 })
 
+test("suppresses a reset offset while a navigation target is pending and delivers after it lands", async () => {
+  const frame = openFrame()
+  const targetWindow = frame.targetWindow
+  const mutations = controlledMutations(targetWindow)
+  const route = targetWindow.document.createElement("section")
+  const viewport = targetWindow.document.createElement("div")
+  route.append(viewport)
+  targetWindow.document.body.append(route)
+
+  const instance = attachedVirtualizer(viewport, { scrollOffset: 79_400, isScrollingResetDelay: 0 })
+  const calls: [number, boolean][] = []
+  let navigating = true
+
+  const cleanup = observeElementOffsetReconnectAware(
+    instance,
+    (offset, isScrolling) => {
+      calls.push([offset, isScrolling])
+      instance.scrollOffset = offset
+    },
+    undefined,
+    () => !navigating,
+  )
+
+  try {
+    mutations.remove(route)
+    mutations.append(targetWindow.document.body, route)
+    await frames(2, targetWindow)
+    expect(calls).toEqual([])
+
+    navigating = false
+    mutations.remove(route)
+    mutations.append(targetWindow.document.body, route)
+    await frames(2, targetWindow)
+    expect(calls).toEqual([[0, false]])
+  } finally {
+    cleanup?.()
+    frame.close()
+  }
+})
+
 test.each([
   [
     "in a later batch",

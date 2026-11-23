@@ -12,6 +12,8 @@ export function observeElementOffsetReconnectAware<TScrollElement extends Elemen
   instance: Virtualizer<TScrollElement, TItemElement>,
   callback: (offset: number, isScrolling: boolean) => void,
   onReconnect?: () => void,
+  /** A navigation target owns the offset; the reset native offset must not replace it. */
+  shouldDeliver?: () => boolean,
 ) {
   const element = instance.scrollElement
   let state = createReconnectState(!!element?.isConnected)
@@ -45,7 +47,11 @@ export function observeElementOffsetReconnectAware<TScrollElement extends Elemen
   const run = (effect: ReconnectEffect) => {
     if (effect.type === "reconnected") return onReconnect?.()
 
-    if (effect.type === "offset.deliver") return deliver(effect.offset, false)
+    if (effect.type === "offset.deliver") {
+      if (shouldDeliver?.() === false) return
+
+      return deliver(effect.offset, false)
+    }
 
     if (frame !== undefined) targetWindow.cancelAnimationFrame(frame)
     frame = undefined

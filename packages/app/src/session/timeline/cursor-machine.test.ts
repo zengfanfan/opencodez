@@ -370,8 +370,8 @@ describe("cursor machine", () => {
     expect(landed(seeking)).toEqual(settled.state)
   })
 
-  test("the first apply of an empty hash goes to the end unless the route reveals a tool", () => {
-    expect(open("").effects).toEqual([{ type: "follow.end" }])
+  test("the first apply of an empty hash leaves the first scroll to the timeline", () => {
+    expect(open("").effects).toEqual([])
     expect(open("", true).effects).toEqual([])
     expect(open("#message-msg_1", true).state).toMatchObject({ status: "pending", endOnMiss: false })
   })

@@ -86,6 +86,8 @@ type MessageTimelineProps = {
   setScrollRef: (el: HTMLDivElement | undefined) => void
   onScheduleScrollState: (el: HTMLDivElement) => void
   follow: TimelineFollow
+  /** A hash target or route reveal is still being applied; the timeline must not follow the end yet. */
+  navigating: Accessor<boolean>
   onUserScroll: (target?: EventTarget | null) => void
   onHistoryScroll: () => void
   centered: boolean
@@ -203,6 +205,7 @@ function MessageTimelineView(
     projection,
     showHeader,
     follow: props.follow,
+    navigating: props.navigating,
     scroll: () => props.scroll,
     onResumeScroll: props.onResumeScroll,
     setScrollRef: props.setScrollRef,
