@@ -304,7 +304,7 @@ export function SidebarInbox() {
 }
 
 // The session leaves the list at once, so the dialog closes before the delete request instead of after it.
-function DeleteDialog(props: { title: string | undefined; onConfirm: () => void }) {
+export function DeleteDialog(props: { title: string | undefined; onConfirm: () => void }) {
   const language = useLanguage()
   const dialog = useDialog()
   const layer = useDialogLayer()

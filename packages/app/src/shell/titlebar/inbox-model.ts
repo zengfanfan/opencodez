@@ -12,6 +12,7 @@ import { useTabs } from "@/shell/tabs/tabs"
 import { sessionBusy, sessionRequests, type SessionRequests } from "@/shell/layout/project-avatar-state"
 import { pathKey } from "@/workspaces/path-key"
 import { parseHomeSessionIndex } from "@/home/sessions/index"
+import { homeSessionsQuery } from "@/home/sessions/queries"
 import { rawTime } from "@/runtime/server/data"
 import { mergeRootSessionIndex } from "@/runtime/server/session-index"
 import { sessionFormRequest, sessionPermissionRequest, sessionTreeIDs } from "@/session/requests/session-request-tree"
@@ -20,6 +21,18 @@ import { errorMessage } from "@/shell/layout/helpers"
 import { showToast } from "@/shell/notifications/toast"
 import { createSessionRenamer } from "@/session/commands/rename-session"
 import { workingSince } from "./inbox-working"
+import {
+  applyArchiveFacts,
+  archivedSessionQueryKey,
+  markSessionArchived,
+  markSessionDeleted,
+  markSessionRestored,
+  prependSession,
+  removeSession,
+  sessionIndexKeys,
+  sessionQueryKey,
+  type SessionIndexMode,
+} from "./inbox-cache"
 import {
   INITIAL_INBOX_BRANCH_STATE,
   selectBranchLoading,
@@ -61,7 +74,7 @@ export type InboxEntry = {
  * finished and unread, or read. Home and the experimental Inbox sidebar list them; only the sidebar loads archived
  * sessions.
  */
-export function createSessionInbox(options: { archived?: boolean } = {}) {
+export function createSessionInbox(options: { archived?: boolean; index?: SessionIndexMode } = {}) {
   const global = useGlobal()
   const servers = useServers()
   const settings = useSettings()
@@ -69,6 +82,8 @@ export function createSessionInbox(options: { archived?: boolean } = {}) {
   const tabs = useTabs()
   const language = useLanguage()
   const queryClient = useQueryClient()
+
+  const mode = options.index ?? "inbox"
 
   const rename = createSessionRenamer()
 
@@ -89,18 +104,42 @@ export function createSessionInbox(options: { archived?: boolean } = {}) {
 
   // The inbox stays mounted and rarely refetches the index, so drop sessions the server no longer has.
   const forget = (conn: ServerConnection.Any, sessionID: string) => {
-    queryClient.setQueryData<SessionInfo[]>(["inbox-sessions", conn], (current) =>
-      current?.filter((session) => session.id !== sessionID),
-    )
-    queryClient.setQueryData<SessionInfo[]>(["inbox-archived-sessions", conn], (current) =>
-      current?.filter((session) => session.id !== sessionID),
-    )
+    queryClient.setQueryData<SessionInfo[]>(sessionQueryKey(mode, conn), (current) => current && removeSession(current, sessionID))
+
+    if (mode === "inbox") {
+      queryClient.setQueryData<SessionInfo[]>(archivedSessionQueryKey(conn), (current) =>
+        current && removeSession(current, sessionID),
+      )
+    }
+  }
+
+  const invalidateIndexes = (conn: ServerConnection.Any) => {
+    for (const queryKey of sessionIndexKeys(conn)) void queryClient.invalidateQueries({ queryKey, exact: true })
   }
 
   createEffect(() => {
     connections().forEach((item) => {
-      onCleanup(item.ctx.data.on("session.deleted", (event) => forget(item.conn, event.data.sessionID)))
       const server = ServerConnection.key(item.conn)
+
+      onCleanup(
+        item.ctx.data.on("session.deleted", (event) => {
+          markSessionDeleted(server, event.data.sessionID)
+          forget(item.conn, event.data.sessionID)
+          invalidateIndexes(item.conn)
+        }),
+      )
+      onCleanup(
+        item.ctx.data.on("session.archived", (event) => {
+          markSessionArchived(server, event.data.sessionID, event.created)
+          invalidateIndexes(item.conn)
+        }),
+      )
+      onCleanup(
+        item.ctx.data.on("session.unarchived", (event) => {
+          markSessionRestored(server, event.data.sessionID)
+          invalidateIndexes(item.conn)
+        }),
+      )
 
       // Request snapshots have no timestamp; live events let newly waiting rows show their actual waiting age.
       onCleanup(
@@ -121,29 +160,34 @@ export function createSessionInbox(options: { archived?: boolean } = {}) {
     })
   })
 
-  // Keep this cache separate from Home's paginated index so changing interface modes cannot reuse a partial index.
-  // One page of the newest root sessions: what needs a person is recent, and paging the whole history first made the
-  // first paint wait on every session the server has.
+  // Cozy reads Home's index so switching layouts cannot show a second, differently bounded list. The Inbox keeps its
+  // own smaller page: what needs a person is recent, and paging the whole history first made the first paint slow.
   const queries = useQueries(() => ({
-    queries: connections().map((item) => ({
-      queryKey: ["inbox-sessions", item.conn] as const,
-      enabled: item.ctx.sdk.connection.status() === "connected",
-      queryFn: ({ signal }: { signal: AbortSignal }) =>
-        item.ctx.sdk.api.session
-          .list({ limit: INDEX_LIMIT, order: "desc", parentID: null }, { signal })
-          .then((response) => parseHomeSessionIndex(response.data)),
-      retry: false,
-      staleTime: 30_000,
-      refetchOnMount: true,
-      refetchOnReconnect: true,
-      select: selectSessions,
-    })),
+    queries: connections().map((item) => {
+      const enabled = item.ctx.sdk.connection.status() === "connected"
+
+      if (mode === "home") return { ...homeSessionsQuery(item.conn, item.ctx), enabled }
+
+      return {
+        queryKey: sessionQueryKey(mode, item.conn),
+        enabled,
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          item.ctx.sdk.api.session
+            .list({ limit: INDEX_LIMIT, order: "desc", parentID: null }, { signal })
+            .then((response) => parseHomeSessionIndex(response.data)),
+        retry: false,
+        staleTime: 30_000,
+        refetchOnMount: true,
+        refetchOnReconnect: true,
+        select: selectSessions,
+      }
+    }),
   }))
 
   const archivedQueries = useQueries(() => ({
     queries: connections().map((item) => ({
-      queryKey: ["inbox-archived-sessions", item.conn] as const,
-      enabled: !!options.archived && item.ctx.sdk.connection.status() === "connected",
+      queryKey: archivedSessionQueryKey(item.conn),
+      enabled: !!options.archived && mode === "inbox" && item.ctx.sdk.connection.status() === "connected",
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         item.ctx.sdk.api.session
           .list({ limit: ARCHIVED_LIMIT, order: "desc", parentID: null, archived: true }, { signal })
@@ -203,7 +247,7 @@ export function createSessionInbox(options: { archived?: boolean } = {}) {
         )
 
         return data.session
-          .apply(sessions)
+          .apply(applyArchiveFacts(server, sessions))
           .map((session): InboxEntry => {
             const project = projectSettingsKey(item.ctx.sdk.scope, session.projectID)
             const requests = sessionRequests(item.ctx, session.id, true, settings.permissions.autoApproves(project))
@@ -419,10 +463,15 @@ export function createSessionInbox(options: { archived?: boolean } = {}) {
     }
 
     forget(entry.conn, entry.session.id)
-    queryClient.setQueryData<SessionInfo[]>(
-      [archivedAt === undefined ? "inbox-sessions" : "inbox-archived-sessions", entry.conn],
-      (current) => current && [session, ...current],
-    )
+
+    if (mode === "inbox") {
+      queryClient.setQueryData<SessionInfo[]>(
+        [archivedAt === undefined ? "inbox-sessions" : "inbox-archived-sessions", entry.conn],
+        (current) => current && prependSession(current, session),
+      )
+    }
+
+    invalidateIndexes(entry.conn)
   }
 
   // The pending request anywhere in the session's family, for views that answer it inline.
@@ -489,7 +538,9 @@ export function createSessionInbox(options: { archived?: boolean } = {}) {
       return entry.ctx.data.session
         .remove(entry.session.id)
         .then(() => {
+          markSessionDeleted(entry.server, entry.session.id)
           forget(entry.conn, entry.session.id)
+          invalidateIndexes(entry.conn)
           notifySessionTabsRemoved({
             server: entry.server,
             directory: entry.session.location.directory,

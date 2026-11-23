@@ -15,6 +15,7 @@ import {
   untrack,
 } from "solid-js"
 import { notifySessionTabsRemoved } from "@/shell/titlebar/session-events"
+import { applyArchiveFacts } from "@/shell/titlebar/inbox-cache"
 import { useCommand } from "@/shell/commands/command"
 import { HOME_SESSION_LIMIT, mergeHomeSessionIndex, retainHomeSessions } from "@/home/sessions/index"
 import { useLanguage } from "@/runtime/i18n/language"
@@ -240,9 +241,12 @@ export function createHomeSessionsController(home: HomeController) {
 
     return retainHomeSessions(
       ctx.data.session.apply(
-        mergeHomeSessionIndex(
-          [...fetchedSessions(), ...(scoped.isPending ? [] : (scoped.data?.().sessions ?? []))],
-          ctx.data.session.known(),
+        applyArchiveFacts(
+          ServerConnection.key(conn),
+          mergeHomeSessionIndex(
+            [...fetchedSessions(), ...(scoped.isPending ? [] : (scoped.data?.().sessions ?? []))],
+            ctx.data.session.known(),
+          ),
         ),
       ),
       HOME_SESSION_LIMIT,
