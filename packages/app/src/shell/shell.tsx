@@ -242,7 +242,9 @@ export default function Layout(props: ParentProps) {
         "--sidebar-inset-start": "11px",
         "--sidebar-inset-end": "3px",
         "--sidebar-divider-bleed":
-          preferences.appearance.tabLayout() === "inbox" || organizedSidebar() ? "var(--shell-inline-inset)" : "0px",
+          preferences.appearance.tabLayout() === "inbox" || preferences.appearance.tabLayout() === "cozy" || organizedSidebar()
+            ? "var(--shell-inline-inset)"
+            : "0px",
         // A bottom mobile titlebar leaves main's top edge to the safe area. Native Windows chrome supplies the gap;
         // retain outer-outline clearance.
         "--shell-top-inset": bottomTitlebar()

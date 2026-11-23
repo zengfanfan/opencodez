@@ -21,6 +21,7 @@ import { createTitlebarHistory } from "./history"
 import { TitlebarTabStrip } from "@/shell/titlebar/tab-strip"
 import { macVerticalTrafficLights, SidebarToggle } from "@/shell/sidebar-toggle"
 import { SidebarInbox } from "@/shell/titlebar/inbox"
+import { SidebarCozy } from "@/shell/titlebar/cozy"
 import { SidebarCustomized, type SidebarStripGrouping } from "@/shell/titlebar/sidebar-customized"
 import { SidebarOrganized } from "@/shell/titlebar/sidebar-organized"
 import { RecentSessions } from "@/shell/titlebar/recent-sessions"
@@ -893,6 +894,9 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                             <div class="h-4 w-full shrink-0" aria-hidden="true" />
                             <div class="flex min-h-0 flex-1 flex-col gap-1">
                               <Switch fallback={verticalTabStrip()}>
+                                <Match when={settings.appearance.tabLayout() === "cozy"}>
+                                  <SidebarCozy />
+                                </Match>
                                 <Match when={settings.appearance.tabLayout() === "inbox"}>
                                   <SidebarInbox />
                                 </Match>

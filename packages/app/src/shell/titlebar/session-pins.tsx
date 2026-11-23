@@ -101,6 +101,11 @@ export function createSessionPins() {
     },
     reorder: (visible: readonly string[], next: readonly string[]) =>
       setState("pins", reorderPins(state.pins, visible, next)),
+    reorderWithCozy: (visible: readonly string[], next: readonly string[], cozy: readonly string[]) =>
+      setState({
+        pins: reorderPins(state.pins, visible, next),
+        cozy: [...cozy],
+      }),
     cozyOrder: () => state.cozy ?? [],
     setCozyOrder: (next: readonly string[]) => setState("cozy", [...next]),
     appendCozy: (key: string) => setState("cozy", (current) => withCozyPin(current, key)),

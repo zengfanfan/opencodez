@@ -107,7 +107,7 @@ export function cozyPlacement(input: {
     if (!project) continue
 
     if (input.pinnedProjects.has(projectKey)) {
-      project.sessions.push({ key, entry, pinned: true })
+      project.sessions.push({ key, entry, pinned: false })
       continue
     }
 

@@ -127,6 +127,10 @@ const icons = {
     viewBox: "0 0 16 16",
     body: `<path d="M1.5 13.5V2.5H5.5L8.5 5.5H14.5V13.5H1.5Z" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/>`,
   },
+  pin: {
+    viewBox: "0 0 16 16",
+    body: `<path d="M10.5 1.5L14.5 5.5L12.5 6.5L9.5 9.5L10 12.5L8.5 14L2 7.5L3.5 6L6.5 6.5L9.5 3.5L10.5 1.5Z" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/>`,
+  },
   "file-tree-active": {
     viewBox: "0 0 20 20",
     body: `<path d="M2 2L2 18H5L6.5 8.5H18V5H9.5L7.5 2H2Z" fill="currentColor" fill-opacity="0.1"/>
