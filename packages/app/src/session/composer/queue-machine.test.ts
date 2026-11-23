@@ -563,3 +563,41 @@ test("undo waits for an idle queue and refuses shell mode", () => {
   expect(undone.effects).toContainEqual({ type: "draft.merge", prompt: prompt("inb_1 text"), context: [] })
   expect(rowIDs(undone.state)).toEqual(["inb_2"])
 })
+
+describe("an edited prompt is sent without blank edge lines", () => {
+  test("trims the prompt and shifts its mentions", () => {
+    const result = replay(createQueueState([one]), [
+      { type: "edit.start", id: "inb_1", reverted: false, draft: draft("") },
+      {
+        type: "edit.confirm",
+        delivery: "queue",
+        reverted: false,
+        prompt: [
+          { type: "text", content: "\n\n", start: 0, end: 2 },
+          { type: "file", path: "a.ts", content: "@a.ts", start: 2, end: 7 },
+          { type: "text", content: "\n\n", start: 7, end: 9 },
+        ],
+        ids,
+      },
+    ])
+
+    expect(runs(result.effects)[0]).toMatchObject({ type: "edit", raw: "@a.ts", text: "@a.ts" })
+    expect(runs(result.effects)[0]).toMatchObject({
+      prompt: [{ type: "file", path: "a.ts", start: 0, end: 5 }],
+    })
+  })
+
+  test("an edit that only trims an older prompt's blank edges stays pristine", () => {
+    const older: QueuedPrompt = {
+      ...item("inb_1"),
+      payload: { text: "\n\ninb_1 text\n\n", metadata: { displayText: "\n\ninb_1 text\n\n" } },
+    }
+
+    const result = replay(createQueueState([older]), [
+      { type: "edit.start", id: "inb_1", reverted: false, draft: draft("") },
+      { type: "edit.confirm", delivery: "queue", reverted: false, prompt: prompt("inb_1 text"), ids },
+    ])
+
+    expect(runs(result.effects)).toEqual([])
+  })
+})

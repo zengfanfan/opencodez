@@ -468,7 +468,7 @@ describe("Composer submission", () => {
   })
 
   test("resends a failed prompt under its ID only while what it sends is unchanged", async () => {
-    const state = createMemoryComposerState({ prompt: "ship it" }).capture()
+    const state = createMemoryComposerState({ prompt: "\n\nship it\n\n" }).capture()
 
     const note = {
       type: "note" as const,
@@ -516,6 +516,7 @@ describe("Composer submission", () => {
     }
 
     const first = await send()
+    expect(text(state)).toBe("ship it")
     expect(state.retry.current()).toMatchObject({ id: first })
     expect(await send()).toBe(first)
 
@@ -605,7 +606,7 @@ describe("Composer submission", () => {
       blob: { id: "attachment", url: "data:image/png;base64,YQ==" },
     }
 
-    state.set([{ type: "text", content: "/btw why this approach?", start: 0, end: 23 }, image])
+    state.set([{ type: "text", content: "\n\n/btw why this approach?", start: 0, end: 25 }, image])
     state.context.add({ type: "file", path: "src/retry.ts" })
     const calls: string[] = []
     const history: string[] = []
@@ -673,6 +674,38 @@ describe("Composer submission", () => {
     expect(request.files?.[0]?.mention).toBeUndefined()
     expect(state.current()).toEqual([{ type: "text", content: "", start: 0, end: 0 }])
     expect(state.context.items()).toEqual([])
+  })
+
+  test("sends a prompt without blank edge lines and keeps its mention aligned", async () => {
+    const state = createMemoryComposerState().capture()
+    const file = { type: "file" as const, path: "src/api.ts", content: "@src/api.ts", start: 9, end: 20 }
+
+    state.set(
+      [
+        { type: "text", content: "\n\nfirst\n\n", start: 0, end: 9 },
+        file,
+        { type: "text", content: "\n\n", start: 20, end: 22 },
+      ],
+      22,
+    )
+
+    const admitted = Promise.withResolvers<Parameters<ComposerSession["data"]["session"]["prompt"]>[0]>()
+    const handoffs: SessionMessageHandoff[] = []
+
+    const target = session({
+      calls: [],
+      handoff: { set: (value) => handoffs.push(value), hold() {}, settle() {}, clear() {} },
+      prompt: async (value) => admitted.resolve(value),
+    })
+
+    await submitInput(active(state, target)).submit(new Event("submit"))
+    const request = await admitted.promise
+    const sent = "first\n\n@src/api.ts"
+
+    expect(request.text).toBe(sent)
+    expect(request.metadata).toMatchObject({ displayText: sent })
+    expect(request.files?.[0]?.mention).toEqual({ start: 7, end: 18, text: "@src/api.ts" })
+    expect(handoffs).toMatchObject([{ message: { text: sent, metadata: { displayText: sent } } }])
   })
 
   test.each(["", "Align these targets"])("hands off and admits uncommented notes with instruction %j", async (text) => {
@@ -1412,6 +1445,20 @@ describe("Composer submission", () => {
     expect(request.delivery).toBe("steer")
   })
 
+  test("runs a server command without blank edge lines", async () => {
+    const state = createMemoryComposerState({ prompt: "\n\n/review x\n\n" }).capture()
+    const sent = Promise.withResolvers<Parameters<ComposerSession["api"]["command"]>[0]>()
+
+    await submitInput(
+      active(state, session({ calls: [], command: async (value) => sent.resolve(value) })),
+      undefined,
+      "normal",
+      () => [{ name: "review" }],
+    ).submit(new Event("submit"))
+
+    expect(await sent.promise).toMatchObject({ name: "review", text: "x" })
+  })
+
   test("captures commands before creating a session in a new worktree", async () => {
     const state = createMemoryComposerState({ prompt: "/review https://github.com/example/repo/pull/1" }).capture()
     const catalog = [{ name: "review" }]
@@ -1451,6 +1498,19 @@ describe("Composer submission", () => {
         delivery: "steer",
       },
     ])
+  })
+
+  test("runs a shell command without blank edge lines", async () => {
+    const state = createMemoryComposerState({ prompt: "\n\nls\n\n" }).capture()
+    const sent = Promise.withResolvers<Parameters<ComposerSession["api"]["shell"]>[0]>()
+
+    await submitInput(
+      active(state, session({ calls: [], shell: async (value) => sent.resolve(value) })),
+      undefined,
+      "shell",
+    ).submit(new Event("submit"))
+
+    expect(await sent.promise).toMatchObject({ command: "ls" })
   })
 
   test("does not run an empty shell command from hidden attachments", async () => {

@@ -4,7 +4,7 @@ import { createEffect, createSignal, onCleanup, untrack, type Accessor } from "s
 import type { PromptComment } from "./comment-note"
 import type { PromptHistoryComment } from "./history/entry"
 import { isCommentItem, type ContextItem, type ImageAttachmentPart, type Prompt } from "./state"
-import { appendPrompt, clonePrompt, isAttachment, promptLength, serializePrompt } from "./prompt-parts"
+import { appendPrompt, clonePrompt, isAttachment, promptLength, serializePrompt, trimPrompt } from "./prompt-parts"
 import type {
   ComposerAdapter,
   ComposerDelivery,
@@ -306,7 +306,7 @@ export function createComposerSubmit(input: ComposerSubmitInput) {
 
 function snapshot(input: ComposerSubmitInput, alternate: boolean, first = false): SubmitSnapshot {
   const target = input.adapter.state
-  const prompt = clonePrompt(target.current())
+  const prompt = trimPrompt(clonePrompt(target.current()))
   const text = submissionText(prompt)
   const mode = input.mode()
 

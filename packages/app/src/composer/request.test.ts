@@ -4,6 +4,7 @@ import { Session } from "@opencode/schema/session"
 import type { ImageAttachmentPart, Prompt } from "@/composer/state"
 import type { FileSelection } from "@/workspaces/files/model"
 import { buildPromptRequest } from "./request"
+import { trimPrompt } from "./prompt-parts"
 import { readPromptPresentation } from "./comment-note"
 
 function inline(filename: string, mime: string, extra?: Partial<ImageAttachmentPart>) {
@@ -26,6 +27,28 @@ describe("buildPromptRequest", () => {
 
     expect(result.text).toBe("@session:ses_0123456789abcdefghijklmnop @a.ts")
     expect(result.displayText).toBe(result.text)
+    expect(result.files[0]?.mention).toEqual({ start: 40, end: 45, text: "@a.ts" })
+  })
+
+  test("trims blank edge lines before serializing session and file mentions", () => {
+    const prompt = trimPrompt([
+      { type: "text", content: "\n\n", start: 0, end: 2 },
+      { type: "session", id: Session.ID.make("ses_0123456789abcdefghijklmnop"), content: "@Auth", start: 2, end: 7 },
+      { type: "text", content: " ", start: 7, end: 8 },
+      { type: "file", path: "a.ts", content: "@a.ts", start: 8, end: 13 },
+      { type: "text", content: "\n\n", start: 13, end: 15 },
+    ])
+
+    const result = buildPromptRequest({
+      prompt,
+      context: [],
+      images: [],
+      text: prompt.map((part) => ("content" in part ? part.content : "")).join(""),
+      sessionDirectory: "/repo",
+    })
+
+    expect(result.displayText.startsWith("@session:")).toBe(true)
+    expect(result.files[0]?.mention?.start).toBe(result.displayText.indexOf("@a.ts"))
     expect(result.files[0]?.mention).toEqual({ start: 40, end: 45, text: "@a.ts" })
   })
 

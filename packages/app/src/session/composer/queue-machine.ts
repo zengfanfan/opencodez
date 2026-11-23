@@ -3,7 +3,7 @@ import type { PromptAttachment, SessionInboxInfo } from "@opencode/client/promis
 import type { ComposerDelivery } from "@/composer/adapter"
 import type { ComposerStateTarget } from "@/composer/submission-state"
 import type { ContextItem, ImageAttachmentPart, PathAttachmentPart, Prompt } from "@/composer/state"
-import { appendPrompt, clonePrompt, isAttachment, promptLength } from "@/composer/prompt-parts"
+import { appendPrompt, clonePrompt, isAttachment, promptLength, trimPrompt } from "@/composer/prompt-parts"
 import { readPromptPresentation } from "@/composer/comment-note"
 import { type BlobReference, createLegacyBlobReference } from "@/runtime/persistence/drafts"
 
@@ -485,13 +485,14 @@ function confirmEdit(state: LiveQueueState, event: Extract<QueueEvent, { type: "
   // Optimistic: the composer returns to the draft it held before the edit and the strip shows the edited prompt as
   // pending. A failure hands the edit back to the composer.
   const restored = restore(state.edit, true)
-  const raw = promptText(event.prompt)
-  const attachments = event.prompt.filter(isAttachment)
+  const prompt = trimPrompt(event.prompt)
+  const raw = promptText(prompt)
+  const attachments = prompt.filter(isAttachment)
 
   if (!raw.trim() && !attachments.length) return changed(closed, [restored])
   const position = state.items.findIndex((entry) => entry.id === state.edit.id)
   const item = state.items[position] ?? state.edit.item
-  const pristine = isPristine(item, event.prompt)
+  const pristine = isPristine(item, prompt)
 
   if (pristine && event.delivery === "queue") return changed(closed, [restored])
 
@@ -507,7 +508,7 @@ function confirmEdit(state: LiveQueueState, event: Extract<QueueEvent, { type: "
       original: item.id,
       delivery: event.delivery,
       item,
-      prompt: event.prompt,
+      prompt,
       raw,
       text: raw.trim(),
       attachments: attachments.length,
@@ -868,7 +869,7 @@ export function isPristine(item: QueuedPrompt, prompt: Prompt) {
   const original = queuedPromptAttachments(item)
 
   return (
-    promptText(prompt).trim() === queuedPromptText(item) &&
+    promptText(prompt).trim() === queuedPromptText(item).trim() &&
     attachments.length === original.length &&
     attachments.every((attachment, index) => attachment.id === original[index].id)
   )
