@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { openInAppParentPath, resolveOpenInAppPath } from "./path"
+import { openInAppParentPath, previewScrollKey, resolveOpenInAppPath } from "./path"
 
 describe("resolveOpenInAppPath", () => {
   test("joins relative paths using the workspace separator", () => {
@@ -16,6 +16,13 @@ describe("resolveOpenInAppPath", () => {
 
   test("keeps in-memory skill URIs out of the workspace", () => {
     expect(resolveOpenInAppPath("/workspace", "skill://report/SKILL.md")).toBe("skill://report/SKILL.md")
+  })
+})
+
+describe("previewScrollKey", () => {
+  test("keeps the rendered preview apart from the source view", () => {
+    expect(previewScrollKey("file://notes.md")).toBe("file://notes.md:preview")
+    expect(previewScrollKey("file://notes.md")).not.toBe("file://notes.md")
   })
 })
 

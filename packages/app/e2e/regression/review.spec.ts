@@ -1360,6 +1360,88 @@ test("Markdown and DOCX sheets stay aligned when switching at wide and narrow pr
   await expect.poll(() => canvas!.evaluate((element) => element.isConnected)).toBe(false)
 })
 
+test("a rendered Markdown preview keeps its scroll across file and session switches", async ({ page }) => {
+  const directory = "C:/OpenCode/PreviewScroll"
+
+  const sections = Array.from({ length: 80 }, (_, index) => {
+    const number = index + 1
+
+    return `## Section ${number}\n\nParagraph ${number}. ${"Long preview text. ".repeat(8)}`
+  })
+
+  await openSession(page, {
+    name: "PreviewScroll",
+    sessions: [
+      { id: "ses_preview_scroll_a", title: "Preview scroll alpha" },
+      { id: "ses_preview_scroll_b", title: "Preview scroll beta" },
+    ],
+    fileList: () => [fileNode(directory, "notes.md"), fileNode(directory, "other.md")],
+    fileContent: (path) =>
+      path === "notes.md"
+        ? { type: "text", content: `# Preview scroll\n\n${sections.join("\n\n")}` }
+        : { type: "text", content: "# Other\n\nAnother document." },
+    pageMessages: (id) => ({
+      items: [
+        {
+          id: `msg_preview_${id}`,
+          type: "assistant",
+          agent: "build",
+          model: { id: "test", providerID: "opencode" },
+          content: [{ type: "text", text: "[Notes](notes.md) [Other](other.md)" }],
+          time: { created: 1, completed: 2 },
+        },
+      ],
+    }),
+  })
+
+  const panel = page.locator("#review-panel")
+  const tab = (name: string) => panel.getByRole("tab", { name, exact: true })
+  const scrollports = panel.locator('[data-slot="artifact-document-stage"]')
+  const target = panel.getByRole("heading", { name: "Section 60", exact: true })
+
+  await page.getByRole("link", { name: "Notes", exact: true }).click()
+  await expect(target).toBeVisible()
+  await page.getByRole("link", { name: "Other", exact: true }).click()
+  await expect(panel.getByText("Another document.", { exact: true })).toBeVisible()
+  await tab("notes.md").click()
+  await expect(target).toBeVisible()
+  await scrollports.evaluateAll((elements) => {
+    const element = elements.find((item) => item.checkVisibility())
+    const heading = element && [...element.querySelectorAll("h2")].find((item) => item.textContent === "Section 60")
+
+    if (!element || !heading) throw new Error("Section 60 not found")
+    element.scrollTop += heading.getBoundingClientRect().top - element.getBoundingClientRect().top - 80
+  })
+  // A wheel hands the view to the reader; a programmatic scroll alone is still the restore to ignore.
+  await target.hover()
+  await page.mouse.wheel(0, 1)
+
+  const top = await scrollports.evaluateAll((elements) => {
+    const element = elements.find((item) => item.checkVisibility())
+
+    return element ? Math.round(element.scrollTop) : -1
+  })
+
+  expect(top).toBeGreaterThan(0)
+
+  await tab("other.md").click()
+  await expect(panel.getByText("Another document.", { exact: true })).toBeVisible()
+  await tab("notes.md").click()
+  await expect(target).toBeInViewport()
+  await expect(panel.getByRole("heading", { name: "Section 1", exact: true })).not.toBeInViewport()
+
+  const switchSession = async (title: string) => {
+    await page.locator("[data-titlebar-tab-slot]", { hasText: title }).click()
+    await expectSessionTitle(page, title)
+  }
+
+  await switchSession("Preview scroll beta")
+  await switchSession("Preview scroll alpha")
+  await expect(tab("notes.md")).toHaveAttribute("aria-selected", "true")
+  await expect(target).toBeInViewport()
+  await expect(panel.getByRole("heading", { name: "Section 1", exact: true })).not.toBeInViewport()
+})
+
 test("diagram preview controls zoom the rendered diagram and fit it back into its pane", async ({ page }) => {
   await openSession(page, {
     name: "DiagramZoom",

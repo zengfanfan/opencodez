@@ -1,4 +1,4 @@
-import { createMemo, createSignal, Match, on, onCleanup, Switch, untrack } from "solid-js"
+import { createMemo, Match, on, onCleanup, Switch } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import type { FileSearchHandle } from "@opencode/session-ui/file"
@@ -12,21 +12,9 @@ import { createKeyed, usePlugin, type LineRange, type MountedSession, type Sessi
 import ArtifactView from "./artifact-view"
 import { useShared } from "./context"
 import { createPreviewFind, PreviewFindBar } from "./find"
-import { fileTabPath } from "./path"
-import {
-  FILE_SCROLL_INTERACTED,
-  FILE_SCROLL_RESTORE_REQUESTED,
-  FILE_SCROLL_REVEAL_REQUESTED,
-  canRestoreFileScroll,
-  canSaveFileScroll,
-  createFileScrollState,
-  sameFileScrollContext,
-  transitionFileScroll,
-  type FileScrollContext,
-  type FileScrollEffect,
-  type FileScrollEvent,
-  type FileScrollPos,
-} from "./scroll-machine"
+import { fileTabPath, previewScrollKey } from "./path"
+import type { FileScrollPos } from "./scroll-machine"
+import { createScrollSync } from "./scroll-sync"
 
 type FileSelection = { startLine: number; endLine: number; startChar: number; endChar: number }
 
@@ -43,6 +31,11 @@ function selectionFromLines(range: LineRange): FileSelection {
 }
 
 const selectionSide = (range: LineRange) => range.endSide ?? range.side ?? "additions"
+
+type FindState = { find: FileSearchHandle | null; root?: HTMLDivElement }
+
+/** The session the view shows and the one it showed before a switch, whose unsaved scroll a switch still stores. */
+type ShownSessions = { current: MountedSession; previous?: MountedSession }
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -66,172 +59,6 @@ function FileCommentMenu(props: {
       </Menu>
     </div>
   )
-}
-
-/** The code view's scroll element and the animation frame that restores or stores its scroll. */
-type ScrollTarget = { element?: HTMLDivElement; frame?: number }
-
-type FindState = { find: FileSearchHandle | null; root?: HTMLDivElement }
-
-/** The session the view shows and the one it showed before a switch, whose unsaved scroll a switch still stores. */
-type ShownSessions = { current: MountedSession; previous?: MountedSession }
-
-function createScrollSync(input: {
-  context: () => Omit<FileScrollContext, "scroller">
-  get: () => FileScrollPos | undefined
-  write: (sessionKey: string, scrollKey: string, position: FileScrollPos) => void
-}) {
-  const scroller: ScrollTarget = {}
-  const [hasScroller, setHasScroller] = createSignal(false)
-  const [code, setCode] = createSignal<HTMLElement[]>([])
-  const [scrollState, setScrollState] = createSignal(createFileScrollState())
-
-  const dispatch = (event: FileScrollEvent) => {
-    const next = transitionFileScroll(untrack(scrollState), event)
-
-    setScrollState(next.state)
-    next.effects.forEach(run)
-  }
-
-  const run = (effect: FileScrollEffect) => {
-    if (effect.type === "save.write") return input.write(effect.sessionKey, effect.scrollKey, effect.position)
-
-    if (scroller.frame !== undefined) cancelAnimationFrame(scroller.frame)
-    scroller.frame = undefined
-
-    if (effect.type === "frame.cancel") return
-    const attempt = effect.attempt
-
-    if (effect.type === "frame.save") {
-      scroller.frame = requestAnimationFrame(() => {
-        scroller.frame = undefined
-        dispatch({ type: "save.stepped", attempt })
-      })
-
-      return
-    }
-
-    scroller.frame = requestAnimationFrame(() => {
-      scroller.frame = undefined
-
-      if (canRestoreFileScroll(untrack(scrollState), attempt)) restore()
-      dispatch({ type: "restore.stepped", attempt })
-    })
-  }
-
-  const interacted = () => dispatch(FILE_SCROLL_INTERACTED)
-
-  const getCode = () => {
-    const el = scroller.element
-
-    if (!el) return []
-
-    const host = el.querySelector("diffs-container")
-
-    if (!(host instanceof HTMLElement)) return []
-
-    const root = host.shadowRoot
-
-    if (!root) return []
-
-    return Array.from(root.querySelectorAll("[data-code]")).filter(
-      (node): node is HTMLElement => node instanceof HTMLElement && node.clientWidth > 0,
-    )
-  }
-
-  const onCodeScroll = (event: Event) => {
-    const el = scroller.element
-
-    if (!el || !canSaveFileScroll(untrack(scrollState))) return
-
-    const target = event.currentTarget
-
-    if (!(target instanceof HTMLElement)) return
-
-    dispatch({ type: "scrolled", position: { x: target.scrollLeft, y: el.scrollTop } })
-  }
-
-  const sync = () => {
-    const next = getCode()
-    const current = code()
-
-    if (next.length === current.length && next.every((el, i) => el === current[i])) return
-    setCode(next)
-  }
-
-  const restore = () => {
-    const el = scroller.element
-
-    if (!el || el.clientHeight === 0 || el.clientWidth === 0) return
-
-    const pos = input.get()
-
-    if (!pos) return
-
-    sync()
-
-    if (code().length > 0) {
-      for (const item of code()) {
-        if (item.scrollLeft !== pos.x) item.scrollLeft = pos.x
-      }
-    }
-
-    if (el.scrollTop !== pos.y) el.scrollTop = pos.y
-
-    if (code().length > 0) return
-
-    if (el.scrollLeft !== pos.x) el.scrollLeft = pos.x
-  }
-
-  // Scroll events a restore or a layout clamp fires arrive while restoring and are not the user's to store.
-  const handleScroll = (event: Event & { currentTarget: HTMLDivElement }) => {
-    if (!canSaveFileScroll(untrack(scrollState))) return
-
-    if (code().length === 0) sync()
-
-    dispatch({
-      type: "scrolled",
-      position: { x: code()[0]?.scrollLeft ?? event.currentTarget.scrollLeft, y: event.currentTarget.scrollTop },
-    })
-  }
-
-  // The diff's code columns scroll on their own; listen to the ones on screen.
-  createKeyed(code, (items) => items.forEach((item) => makeEventListener(item, "scroll", onCodeScroll)))
-
-  createKeyed(
-    () => ({ ...input.context(), scroller: hasScroller() }),
-    (context) => dispatch({ type: "context.synced", context }),
-    { equals: sameFileScrollContext },
-  )
-
-  // The ref runs before the file renders into the element; the machine restores a frame after the mount. The code view
-  // unmounts while an artifact shows its preview, and restores again when its source shows.
-  const setViewport = (el: HTMLDivElement) => {
-    scroller.element = el
-    // Input, not the scroll events a restore or a layout change fires, hands the view to the user.
-    makeEventListener(el, "wheel", interacted, { passive: true, capture: true })
-    makeEventListener(el, "mousewheel", interacted, { passive: true, capture: true })
-    makeEventListener(el, "pointerdown", interacted, { passive: true, capture: true })
-    makeEventListener(el, "touchstart", interacted, { passive: true, capture: true })
-    makeEventListener(el, "keydown", interacted, { capture: true })
-    setHasScroller(true)
-    onCleanup(() => {
-      if (scroller.element !== el) return
-      scroller.element = undefined
-      setCode([])
-      setHasScroller(false)
-    })
-  }
-
-  onCleanup(() => dispatch({ type: "disposed" }))
-
-  return {
-    handleScroll,
-    interacted,
-    requestRestore: () => dispatch(FILE_SCROLL_RESTORE_REQUESTED),
-    reveal: () => dispatch(FILE_SCROLL_REVEAL_REQUESTED),
-    setViewport,
-  }
 }
 
 export function SessionFileView(props: { session: MountedSession; screen: SessionScreen; id: string }) {
@@ -280,10 +107,36 @@ export function SessionFileView(props: { session: MountedSession; screen: Sessio
   // The sessions the view showed last, so a session switch still stores the offset the user left the previous one at.
   const shown: ShownSessions = { current: props.session }
 
+  const trackShown = () => {
+    if (props.session.key !== shown.current.key) shown.previous = shown.current
+    shown.current = props.session
+  }
+
+  // A delayed save after a session switch still finds the session it belongs to.
+  const writeScroll = (sessionKey: string, scrollKey: string, position: FileScrollPos) => {
+    trackShown()
+    const session = [props.session, shown.previous].find((item) => item?.key === sessionKey)
+
+    if (session) layout.scroll.set(session, scrollKey, position)
+  }
+
+  const codeElements = (el: HTMLDivElement) => {
+    const host = el.querySelector("diffs-container")
+
+    if (!(host instanceof HTMLElement)) return []
+
+    const root = host.shadowRoot
+
+    if (!root) return []
+
+    return Array.from(root.querySelectorAll("[data-code]")).filter(
+      (node): node is HTMLElement => node instanceof HTMLElement && node.clientWidth > 0,
+    )
+  }
+
   const scrollSync = createScrollSync({
     context: () => {
-      if (props.session.key !== shown.current.key) shown.previous = shown.current
-      shown.current = props.session
+      trackShown()
 
       return {
         sessionKey: props.session.key,
@@ -295,11 +148,8 @@ export function SessionFileView(props: { session: MountedSession; screen: Sessio
       }
     },
     get: () => layout.scroll.get(props.session, key()),
-    write: (sessionKey, scrollKey, position) => {
-      const session = [props.session, shown.previous].find((item) => item?.key === sessionKey)
-
-      if (session) layout.scroll.set(session, scrollKey, position)
-    },
+    write: writeScroll,
+    code: { elements: codeElements },
   })
 
   const selectionPreview = (source: string, selection: FileSelection) => {
@@ -410,7 +260,13 @@ export function SessionFileView(props: { session: MountedSession; screen: Sessio
     ),
   })
 
-  const previewFind = createPreviewFind({ root: () => state.root, active })
+  let previewInteract: (() => void) | undefined
+
+  const previewFind = createPreviewFind({
+    root: () => state.root,
+    active,
+    interact: () => previewInteract?.(),
+  })
 
   // Mod+F finds in the shown file, or in its preview.
   makeEventListener(
@@ -533,6 +389,15 @@ export function SessionFileView(props: { session: MountedSession; screen: Sessio
               content={value()}
               cacheKey={cacheKey()}
               source={codeView()}
+              previewScroll={{
+                scrollKey: previewScrollKey(key()),
+                fileReady: () => file.ready(),
+                active: () => active(),
+                layoutReady: () => layout.ready() && props.session.location !== undefined,
+                get: () => layout.scroll.get(props.session, previewScrollKey(key())),
+                write: writeScroll,
+              }}
+              onPreviewInteract={(interact) => (previewInteract = interact)}
             />
           )}
         </Match>

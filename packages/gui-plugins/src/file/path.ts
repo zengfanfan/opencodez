@@ -10,6 +10,9 @@ export const fileTabId = (file: Files, path: string) => `//${encodeFilePath(file
 
 export const fileTabPath = (file: Files, id: string) => file.resolve(`file:${id}`)
 
+/** A file tab's rendered preview keeps its own scroll, apart from the source view's key. */
+export const previewScrollKey = (tabKey: string) => `${tabKey}:preview`
+
 export const isFileTab = (id: string) => id.startsWith("//")
 
 /** The file:// URL the browser pane loads for a workspace file. */

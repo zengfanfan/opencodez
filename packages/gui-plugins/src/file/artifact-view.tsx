@@ -5,6 +5,7 @@ import {
   For,
   Match,
   onCleanup,
+  onMount,
   Show,
   Switch,
   untrack,
@@ -39,6 +40,7 @@ import { FileViewer } from "@opencode/plugin/gui/file"
 import { uuid } from "@opencode/util/uuid"
 import { ArtifactToolbar } from "./artifact-toolbar"
 import { findableHtml } from "./find"
+import { createPreviewScroll, type PreviewScrollOptions } from "./preview-scroll"
 import {
   createArtifactViewerState,
   createVideoOverlayState,
@@ -80,6 +82,10 @@ export default function ArtifactView(props: {
   content: FileContent
   cacheKey?: string
   source: JSX.Element
+  /** The rendered Markdown preview's scroll, kept apart from the source view's key. */
+  previewScroll?: Omit<PreviewScrollOptions, "session" | "shown">
+  /** Hands the preview's scroll driver to the file view, whose Find must settle it before scrolling. */
+  onPreviewInteract?: (interact: (() => void) | undefined) => void
 }) {
   const ctx = usePlugin()
   const locale = ctx.locale
@@ -100,6 +106,38 @@ export default function ArtifactView(props: {
   const fixedMode = createMemo(() => fixedArtifactMode(props.path, props.content))
 
   const mode = () => fixedMode() ?? selectArtifactMode(viewerState(), props.content)
+
+  const previewConfig = props.previewScroll
+
+  const previewScrollSync = previewConfig
+    ? createPreviewScroll({
+        session: () => props.session,
+        scrollKey: previewConfig.scrollKey,
+        fileReady: previewConfig.fileReady,
+        active: previewConfig.active,
+        layoutReady: previewConfig.layoutReady,
+        shown: () => mode() === "preview" && kind() === "markdown" && previewConfig.active(),
+        get: previewConfig.get,
+        write: previewConfig.write,
+      })
+    : undefined
+
+  onMount(() => props.onPreviewInteract?.(previewScrollSync?.interacted))
+  onCleanup(() => props.onPreviewInteract?.(undefined))
+
+  let previewReadyObserver: MutationObserver | undefined
+
+  const setPreviewViewport = (el: HTMLDivElement) => {
+    previewScrollSync?.setViewport(el)
+    previewReadyObserver?.disconnect()
+    previewReadyObserver = new MutationObserver(() => {
+      if (el.querySelector('[data-component="markdown"][data-markdown-ready]')) previewScrollSync?.requestRestore()
+    })
+    previewReadyObserver.observe(el, { subtree: true, attributes: true, attributeFilter: ["data-markdown-ready"] })
+    previewScrollSync?.requestRestore()
+  }
+
+  onCleanup(() => previewReadyObserver?.disconnect())
 
   const table = createMemo(() =>
     kind() === "table"
@@ -153,6 +191,8 @@ export default function ArtifactView(props: {
         data-document-surface-column
         class="min-h-0 flex-1 overflow-auto"
         data-scrollable
+        ref={setPreviewViewport}
+        onScroll={(event) => previewScrollSync?.handleScroll(event)}
       >
         <ArtifactMarkdown
           session={props.session}

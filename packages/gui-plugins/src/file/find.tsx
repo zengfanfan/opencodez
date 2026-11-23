@@ -32,7 +32,12 @@ type PendingFrame = { frame?: number }
  * through a script added to the page, since the preview runs in a sandboxed frame. It uses the code view's bar and
  * marks, so both look the same.
  */
-export function createPreviewFind(input: { root: () => HTMLElement | undefined; active: () => boolean }) {
+export function createPreviewFind(input: {
+  root: () => HTMLElement | undefined
+  active: () => boolean
+  /** Find scrolls the preview; the scroll driver must not restore over its match. */
+  interact?: () => void
+}) {
   const [state, setState] = createSignal<PreviewFindState>()
   const local: PreviewFindDom = { ranges: [] }
 
@@ -49,6 +54,8 @@ export function createPreviewFind(input: { root: () => HTMLElement | undefined; 
 
     if (current.target instanceof HTMLIFrameElement) {
       update({ query, index })
+
+      if (scroll) input.interact?.()
       current.target.contentWindow?.postMessage({ source: CHANNEL, op: "search", query, index, marks: marks() }, "*")
 
       return
@@ -68,7 +75,10 @@ export function createPreviewFind(input: { root: () => HTMLElement | undefined; 
     if (!active) return CSS.highlights.delete(ACTIVE)
     CSS.highlights.set(ACTIVE, new Highlight(active))
 
-    if (scroll) active.startContainer.parentElement?.scrollIntoView({ block: "center", inline: "nearest" })
+    if (scroll) {
+      input.interact?.()
+      active.startContainer.parentElement?.scrollIntoView({ block: "center", inline: "nearest" })
+    }
   }
 
   // Where the code view puts its bar, so it stays put when the preview switches to the source.
