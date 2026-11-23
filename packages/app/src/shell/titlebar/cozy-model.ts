@@ -89,15 +89,12 @@ export function cozyPlacement(input: {
   )
 
   const entriesByKey = new Map(input.entries.map((entry) => [input.sessionKey(entry), entry]))
-  const pinned: CozyItem[] = []
   const recent: CozySession[] = []
-  const defaultRecent = new Map<ServerConnection.Key, number>()
 
   for (const entry of input.entries) {
     const key = input.sessionKey(entry)
 
     if (input.pinnedSessions.has(key)) {
-      pinned.push({ kind: "session", session: { key, entry, pinned: true } })
       continue
     }
 
@@ -115,7 +112,6 @@ export function cozyPlacement(input: {
 
     if (input.defaultProjects.get(entry.server) === projectKey) {
       recent.push({ key, entry, pinned: false })
-      defaultRecent.set(entry.server, (defaultRecent.get(entry.server) ?? 0) + 1)
       continue
     }
 
