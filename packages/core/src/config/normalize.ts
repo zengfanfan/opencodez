@@ -397,6 +397,22 @@ function normalizeCompaction(
     : undefined
   const buffer = prefer(legacyBuffer, nativeBuffer, ["compaction", "buffer"], diagnostics)
   if (buffer !== undefined) result.buffer = buffer
+  if (own(input.compaction, "models")) {
+    const models = input.compaction.models
+    if (!isRecord(models)) {
+      invalid(["compaction", "models"], diagnostics)
+    } else if (Object.keys(models).some((key) => !Schema.is(ConfigCompaction.ModelKey)(key))) {
+      invalid(["compaction", "models"], diagnostics)
+    } else {
+      const decoded = decodeEncoded(
+        ConfigCompaction.Info.fields.models,
+        models,
+        ["compaction", "models"],
+        diagnostics,
+      )
+      if (decoded !== undefined) result.models = decoded
+    }
+  }
   if (Object.keys(result).length || !Object.keys(input.compaction).length) encoded.compaction = result
 }
 

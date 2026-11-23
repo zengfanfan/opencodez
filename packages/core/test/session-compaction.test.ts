@@ -470,6 +470,99 @@ it.effect("auto compaction estimates current content against the buffered prompt
       }),
     )
 
+    // A per-model buffer overrides the global one for the selected model.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) =>
+          editor.configure({ models: { "test/summary-model": { buffer: "5K" } } }),
+        )
+        expect(yield* due(input(94_999, contextLimited))).toBe(false)
+        expect(yield* due(input(95_000, contextLimited))).toBe(true)
+      }),
+    )
+
+    // An unlisted model falls back to the global buffer.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) =>
+          editor.configure({ buffer: "20%", models: { "test/other": { buffer: "5K" } } }),
+        )
+        expect(yield* due(input(79_999, contextLimited))).toBe(false)
+        expect(yield* due(input(80_000, contextLimited))).toBe(true)
+      }),
+    )
+
+    // A model ID containing `/` keeps the composed provider/model key.
+    const nested = SessionRunnerModel.resolved(
+      LanguageModel.make({ id: "nested/model", provider: "test", route: OpenAIChat.route }),
+      {
+        capabilities: { tools: true, input: ["text", "image", "pdf"], output: ["text"] },
+        cost: [],
+        limit: { context: 100_000, output: 32_000 },
+      },
+    )
+    const nestedInput = (tokens: number) => {
+      const base = input(tokens, { context: 100_000, output: 32_000 })
+      return {
+        ...base,
+        model: nested,
+        messages: base.messages.map((message) =>
+          message.type === "assistant" ? { ...message, model: nested.ref } : message,
+        ),
+      }
+    }
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) =>
+          editor.configure({ models: { "test/nested/model": { buffer: "5K" } } }),
+        )
+        expect(yield* due(nestedInput(94_999))).toBe(false)
+        expect(yield* due(nestedInput(95_000))).toBe(true)
+      }),
+    )
+
+    // K/M suffixes are decimal tokens; decimals keep their fraction.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) =>
+          editor.configure({ models: { "test/summary-model": { buffer: "1.5M" } } }),
+        )
+        expect(yield* due(input(499_999, { context: 2_000_000, output: 1_000 }))).toBe(false)
+        expect(yield* due(input(500_000, { context: 2_000_000, output: 1_000 }))).toBe(true)
+      }),
+    )
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) =>
+          editor.configure({ models: { "test/summary-model": { buffer: "0.5K" } } }),
+        )
+        expect(yield* due(input(99_499, contextLimited))).toBe(false)
+        expect(yield* due(input(99_500, contextLimited))).toBe(true)
+      }),
+    )
+
+    // An unusable per-model value falls back to the global value before the default.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) =>
+          editor.configure({ buffer: "5%", models: { "test/summary-model": { buffer: "1M" } } }),
+        )
+        expect(yield* due(input(189_999, { context: 200_000, output: 32_000 }))).toBe(false)
+        expect(yield* due(input(190_000, { context: 200_000, output: 32_000 }))).toBe(true)
+      }),
+    )
+
+    // When both values are unusable, the default reserve applies.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) =>
+          editor.configure({ buffer: "500K", models: { "test/summary-model": { buffer: "1M" } } }),
+        )
+        expect(yield* due(input(169_999, { context: 200_000, output: 32_000 }))).toBe(false)
+        expect(yield* due(input(170_000, { context: 200_000, output: 32_000 }))).toBe(true)
+      }),
+    )
+
     const assistant = input(89_000, contextLimited).messages[0]
     const tool = SessionMessage.AssistantTool.make({
       type: "tool",
@@ -1270,6 +1363,36 @@ it.effect("automatic compaction swaps in the background summary without another 
         Bus.versionedType(SessionEvent.Compaction.Ended.type, 1),
       ].toSorted(),
     )
+  }),
+)
+
+it.effect("background summaries use a per-model buffer", () =>
+  Effect.gen(function* () {
+    requests = []
+    beforeResponse = Effect.void
+    const compaction = yield* SessionCompaction.Service
+    const sessionID = Session.ID.make("ses_precompute_model")
+    const session = yield* insertSession(sessionID)
+    const near = [
+      textUser("First question"),
+      measured("First answer", 80_000),
+      textUser("Second question"),
+      measured("Second answer", 120_000),
+    ]
+    const due = [...near, textUser("Third question"), measured("Third answer", 180_000)]
+    yield* storeMessages(sessionID, due)
+
+    yield* compaction.transform((editor) =>
+      editor.configure({ models: { "test/summary-model": { buffer: "50K" } } }),
+    )
+    yield* compaction.precompute(Effect.succeed(loaded(session, near)))
+    expect(yield* compaction.compact({ reason: "auto", context: loaded(session, due) })).toEqual({
+      status: "completed",
+    })
+
+    expect(requests).toHaveLength(1)
+    expect(JSON.stringify(requests[0].messages)).toContain("Second question")
+    expect(JSON.stringify(requests[0].messages)).not.toContain("Second answer")
   }),
 )
 

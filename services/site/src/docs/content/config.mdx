@@ -365,11 +365,14 @@ Control automatic context compaction and how much recent context it preserves.
       "tokens": 15000,
     },
     "buffer": "15%",
+    "models": {
+      "openai/gpt-6.1-sol": { "buffer": "100K" },
+    },
   },
 }
 ```
 
-`buffer` is the share of the model's context window kept free before automatic compaction starts.
+`buffer` is the share of the model's context window kept free before automatic compaction starts. A token count such as `"128K"` or `"1.5M"` also works, with decimal units. `models` overrides `buffer` for a `provider/model` key. Unlisted models use the top-level value, and a model value that cannot fit the window falls back to the global value before the built-in default.
 
 Local summaries remain the default. Opt into native provider compaction for both
 automatic and manual requests with a provider or model policy:

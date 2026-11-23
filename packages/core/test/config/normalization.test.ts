@@ -544,6 +544,32 @@ describe("ConfigNormalize", () => {
       expect(result.encoded.compaction).toBeUndefined()
       expect(result.diagnostics.map((item) => [item.kind, item.path])).toEqual([["invalid", ["compaction", "buffer"]]])
     }
+    for (const buffer of ["128K", "128k", "1M", "1.5M"]) {
+      expect(normalized({ compaction: { buffer } }).encoded.compaction).toEqual({ buffer })
+    }
+    const invalidTokens = normalized({ compaction: { buffer: "abc" } })
+    expect(invalidTokens.encoded.compaction).toBeUndefined()
+    expect(invalidTokens.diagnostics.map((item) => [item.kind, item.path])).toEqual([
+      ["invalid", ["compaction", "buffer"]],
+    ])
+
+    expect(
+      normalized({ compaction: { models: { "test-provider/test-model": { buffer: "1.5M" } } } }).encoded.compaction,
+    ).toEqual({ models: { "test-provider/test-model": { buffer: "1.5M" } } })
+    expect(normalized({ compaction: { models: { "p/a/b": { buffer: "20%" } } } }).encoded.compaction).toEqual({
+      models: { "p/a/b": { buffer: "20%" } },
+    })
+    const invalidKey = normalized({ compaction: { models: { "no-slash": { buffer: "10K" } } } })
+    expect(invalidKey.encoded.compaction).toBeUndefined()
+    expect(invalidKey.diagnostics.map((item) => [item.kind, item.path])).toEqual([
+      ["invalid", ["compaction", "models"]],
+    ])
+    const invalidValue = normalized({ compaction: { models: { "p/m": { buffer: "1G" } } } })
+    expect(invalidValue.encoded.compaction).toBeUndefined()
+    expect(invalidValue.diagnostics.map((item) => [item.kind, item.path])).toEqual([
+      ["invalid", ["compaction", "models"]],
+    ])
+    expect(normalized({ compaction: { models: {} } }).encoded.compaction).toEqual({ models: {} })
   })
 
   test("distinguishes empty, mixed, and wholly malformed enabled provider lists", () => {

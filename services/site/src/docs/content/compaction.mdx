@@ -101,8 +101,27 @@ Add `compaction` to any [OpenCode configuration file](/config):
 
 - It is the room kept free, not the point where compaction starts: `"20%"` compacts at 80% full.
 - Accepts `"1%"` to `"99%"`, including decimals such as `"12.5%"`.
-- A token count such as `20000` also works. The same count is a large share of a small window and a small share of a large one.
-- A token count at least as large as the model's window is ignored and the default applies.
+- A token count such as `20000`, `"128K"`, or `"1.5M"` also works. K and M are decimal, so `1K` is 1000 tokens and `1M` is 1,000,000. The same count is a large share of a small window and a small share of a large one.
+- A token count at least as large as the model's window is ignored. A per-model value then tries the global value, and the default applies only when both are unusable.
+
+Set a value for one model with `compaction.models`, keyed by `provider/model`:
+
+```jsonc title="opencode.jsonc"
+{
+  "compaction": {
+    "buffer": "15%",
+    "models": {
+      "openai/gpt-6.1-sol": { "buffer": "100K" },
+      "anthropic/claude-sonnet-5-5": { "buffer": "20%" },
+    },
+  },
+}
+```
+
+- Unlisted models use the top-level `buffer`.
+- Model IDs may contain `/`, such as `openrouter/anthropic/claude-sonnet-5-5`. Keys are case-sensitive. A variant suffix such as `#thinking` is not supported, and the model value covers its variants.
+- A later config file replaces the whole `models` map, and an explicit `"models": {}` clears earlier overrides. Keep every per-model override in one file.
+- The value only moves the trigger. The summary request keeps using the top-level `buffer` and the summary model's window, so a custom `agents.compaction.model` is unaffected by per-model values.
 
 ## Model
 

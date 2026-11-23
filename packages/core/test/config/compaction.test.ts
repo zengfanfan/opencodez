@@ -3,6 +3,7 @@ import { LanguageModel, LLMClient, LLMEvent } from "@opencode/ai/effect"
 import { OpenAIChat } from "@opencode/ai/protocols"
 import { Bus } from "@opencode/core/bus"
 import { Config } from "@opencode/core/config"
+import { ConfigNormalize } from "@opencode/core/config/normalize"
 import { ConfigCompactionPlugin } from "@opencode/core/config/plugin/compaction"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { llmClient } from "@opencode/core/effect/app-node-platform"
@@ -141,6 +142,64 @@ describe("ConfigCompactionPlugin.Plugin", () => {
         yield* Effect.sleep("10 millis")
       }
       yield* Effect.die(new Error("Timed out waiting for compaction config reload"))
+    }),
+  )
+
+  it.live("applies per-model buffers and keeps them across a normalized invalid document", () =>
+    Effect.gen(function* () {
+      const config = yield* Config.Test
+      const bus = yield* Bus.Service
+      const compaction = yield* SessionCompaction.Service
+      const due = (input: typeof nearInput) =>
+        compaction
+          .compact({ reason: "auto", context: input.context })
+          .pipe(Effect.map((outcome) => outcome.status !== "skipped"))
+      const waitFor = (condition: Effect.Effect<boolean>) =>
+        Effect.gen(function* () {
+          for (let attempt = 0; attempt < 200; attempt++) {
+            if (yield* condition) return
+            yield* Effect.sleep("10 millis")
+          }
+          yield* Effect.die(new Error("Timed out waiting for compaction config reload"))
+        })
+      const model = new ConfigCompaction.Override({ buffer: "10K" })
+      const document = (auto: boolean, models?: Record<string, ConfigCompaction.Override>) =>
+        new Document({
+          type: "document",
+          info: new Info({
+            compaction: new ConfigCompaction.Info({
+              auto,
+              buffer: 20_000,
+              ...(models === undefined ? {} : { models }),
+            }),
+          }),
+        })
+
+      yield* config.setEntries([document(false, { "test-provider/test-model": model })])
+      yield* ConfigCompactionPlugin.Plugin.effect(host({ event: { subscribe: () => bus.subscribe(Event.Updated) } }))
+      expect(yield* due(nearInput)).toBe(false)
+
+      const normalized = ConfigNormalize.normalize({
+        compaction: { auto: true, models: { "no-slash": { buffer: "10K" } } },
+      })
+      expect(normalized.type).toBe("normalized")
+      if (normalized.type !== "normalized") throw new Error("expected a normalized config")
+      const invalid = Schema.decodeUnknownSync(Info)(normalized.encoded)
+      expect(invalid.compaction?.auto).toBe(true)
+      expect(invalid.compaction?.models).toBeUndefined()
+
+      yield* config.setEntries([document(false, { "test-provider/test-model": model }), new Document({
+        type: "document",
+        info: invalid,
+      })])
+      yield* bus.publish(Event.Updated, {})
+      yield* waitFor(due(nearInput))
+      // The invalid document contributes auto: true but no models, so the earlier override still applies.
+      expect(yield* due(bufferedInput)).toBe(false)
+
+      yield* config.setEntries([document(true)])
+      yield* bus.publish(Event.Updated, {})
+      yield* waitFor(due(bufferedInput))
     }),
   )
 })
