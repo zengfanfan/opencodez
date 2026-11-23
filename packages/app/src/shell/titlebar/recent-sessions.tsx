@@ -10,13 +10,10 @@ import { useDialog, useDialogLayer } from "@opencode/ui/context/dialog"
 import { Dialog, DialogFooter, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
 import { Loader } from "@opencode/ui/loader"
 import { Menu } from "@opencode/ui/menu"
-import { Schema } from "effect"
 import { batch, createEffect, createMemo, onCleanup, Show, startTransition, untrack } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { arrayMove } from "@/runtime/array-move"
 import { useLanguage } from "@/runtime/i18n/language"
-import { Persistence } from "@/runtime/persistence/schema"
-import { Persist, persisted } from "@/runtime/persistence/storage"
 import { rawTime } from "@/runtime/server/data"
 import { ServerConnection, useServers } from "@/runtime/server/registry"
 import { useGlobal, type ServerCtx } from "@/runtime/server/runtime"
@@ -28,8 +25,6 @@ import { setSidebarUnread } from "@/shell/sidebar-peek"
 import { useLayout } from "@/shell/state/layout"
 import { tabHref, useTabs } from "@/shell/tabs/tabs"
 import {
-  addPin,
-  dedupePins,
   INITIAL_RECENT_PAGE_STATE,
   RECENT_PAGE_LIMIT,
   RECENT_RELOAD_DELAY_MS,
@@ -44,8 +39,6 @@ import {
   recentRowUnread,
   recentSessionEndpoints,
   recentSessionKey,
-  removePin,
-  reorderPins,
   splitRecentSessionKey,
   transitionRecentPage,
   windowRecentSessions,
@@ -55,14 +48,10 @@ import {
   type RecentSession,
 } from "./recent-sessions-model"
 import { notifySessionTabsRemoved } from "./session-events"
+import { useSessionPins } from "./session-pins"
 import { TabNavItem } from "./tab-nav"
 import { createSessionRowNavigation, syncInactiveSession } from "./tab-strip"
 import { sessionTabTitle } from "./tab-title"
-
-const RecentSidebarState = Persistence.struct({
-  // Ordered `${server}\u0000${sessionID}` keys. Local to this desktop.
-  pins: Persistence.array(Schema.String),
-})
 
 type Connection = { conn: ServerConnection.Any; ctx: ServerCtx; server: ServerConnection.Key }
 
@@ -79,7 +68,8 @@ export function RecentSessions() {
   const dialog = useDialog()
   const queryClient = useQueryClient()
 
-  const [state, setState, , ready] = persisted(Persist.global("sidebar.recent"), RecentSidebarState, { pins: [] })
+  const sessionPins = useSessionPins()
+  const ready = sessionPins.ready
 
   const [pages, setPages] = createStore<Record<string, RecentPageState>>({})
 
@@ -274,7 +264,7 @@ export function RecentSessions() {
             if (page.kind === "refresh" || page.kind === "reload") {
               const covered = new Map(response.data.map((info) => [info.id, info]))
 
-              for (const key of state.pins) {
+              for (const key of sessionPins.keys()) {
                 const pin = splitRecentSessionKey(key)
 
                 if (pin?.server !== item.server) continue
@@ -328,15 +318,6 @@ export function RecentSessions() {
     hydrationControllers.forEach((controller) => controller.abort())
     timers.forEach((timer) => clearTimeout(timer))
     reloads.forEach((timer) => clearTimeout(timer))
-  })
-
-  // The store is local and long-lived; drop duplicates a previous version or a manual edit left behind.
-  createEffect(() => {
-    if (!ready()) return
-
-    const normalized = dedupePins(state.pins)
-
-    if (normalized.length !== state.pins.length) setState("pins", normalized)
   })
 
   // First pages follow connection state: load on the first connect, refresh the snapshot on every reconnect or
@@ -396,7 +377,7 @@ export function RecentSessions() {
     const result = new Map<string, RecentSession>()
 
     connections().forEach((item) => {
-      state.pins.forEach((key) => {
+      sessionPins.keys().forEach((key) => {
         const parsed = splitRecentSessionKey(key)
 
         if (!parsed || parsed.server !== item.server) return
@@ -421,7 +402,7 @@ export function RecentSessions() {
     const loaded = new Set(items().map((item) => item.key))
     const list = connections()
 
-    state.pins.forEach((key) => {
+    sessionPins.keys().forEach((key) => {
       if (loaded.has(key) || hydrationControllers.has(key) || hydration[key]) return
       const parsed = splitRecentSessionKey(key)
 
@@ -524,7 +505,7 @@ export function RecentSessions() {
   const partition = createMemo(() =>
     partitionRecentSessions({
       items: items(),
-      pins: state.pins,
+      pins: sessionPins.keys(),
       endpoints: endpoints(),
       open: openSessions(),
       resolvePin: (key) => hydratedItems().get(key),
@@ -621,7 +602,7 @@ export function RecentSessions() {
 
   const reorderPinned = (nextVisible: readonly string[]) => {
     const visible = pinned().map((item) => item.key)
-    setState("pins", reorderPins(state.pins, visible, nextVisible))
+    sessionPins.reorder(visible, nextVisible)
   }
 
   const movePin = (key: string, offset: number) => {
@@ -636,11 +617,7 @@ export function RecentSessions() {
     reorderPinned(arrayMove(visible, index, target))
   }
 
-  const removePinKey = (key: string) => {
-    const next = removePin(state.pins, key, endpoints())
-
-    if (next.length !== state.pins.length) setState("pins", next)
-  }
+  const removePinKey = (key: string) => sessionPins.unpinKey(key)
 
   // The fetched page is a separate cache. Archive and delete drop a row so it does not linger when the live store
   // never held it.
@@ -733,7 +710,7 @@ export function RecentSessions() {
     void ctx.sdk.api.session
       .update({ sessionID: item.session.id, archived: true })
       .then(() => {
-        if (state.pins.includes(item.key)) {
+        if (sessionPins.keys().includes(item.key)) {
           setHydration(item.key, {
             ...item.session,
             // The row's time may be a send bump; the snapshot goes back through `apply` and must stay raw.
@@ -799,7 +776,7 @@ export function RecentSessions() {
       canMoveUp: () => index !== undefined && index() > 0,
       canMoveDown: () => index !== undefined && index() < pinned().length - 1,
       onOpen: () => open(item()),
-      onPin: () => setState("pins", (current) => addPin(current, item().key)),
+      onPin: () => sessionPins.pinKey(item().key),
       onUnpin: () => removePinKey(item().key),
       onMoveUp: () => movePin(item().key, -1),
       onMoveDown: () => movePin(item().key, 1),

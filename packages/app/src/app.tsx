@@ -18,6 +18,7 @@ import { LanguageProvider, UiI18nBridge, type Locale } from "@/runtime/i18n/lang
 import { ServerConnection, ServersProvider } from "@/runtime/server/registry"
 import { SettingsProvider } from "@/settings/model"
 import { TabsProvider } from "@/shell/tabs/tabs"
+import { SessionPinsProvider } from "@/shell/titlebar/session-pins"
 import { ErrorPage } from "@/shell/errors/error"
 import { AppRoutes, File, preloadRoute } from "@/shell/routes/routes"
 import { PluginRoot } from "@/runtime/plugin/root"
@@ -95,22 +96,24 @@ export function AppInterface(props: {
   // route changes. Draft and session routes override only their server-bound data
   // providers beneath it.
   const Root = (rootProps: ParentProps) => (
-    <TabsProvider>
-      <GlobalProvider>
-        <ProjectIconsProvider>
-          <BodyTypography />
-          <CommandProvider>
-            <DesktopCommands />
-            <VoiceProvider>
-              {props.children}
-              {rootProps.children}
-              <VoiceOverlay />
-              <TaskbarBadge />
-            </VoiceProvider>
-          </CommandProvider>
-        </ProjectIconsProvider>
-      </GlobalProvider>
-    </TabsProvider>
+    <SessionPinsProvider>
+      <TabsProvider>
+        <GlobalProvider>
+          <ProjectIconsProvider>
+            <BodyTypography />
+            <CommandProvider>
+              <DesktopCommands />
+              <VoiceProvider>
+                {props.children}
+                {rootProps.children}
+                <VoiceOverlay />
+                <TaskbarBadge />
+              </VoiceProvider>
+            </CommandProvider>
+          </ProjectIconsProvider>
+        </GlobalProvider>
+      </TabsProvider>
+    </SessionPinsProvider>
   )
 
   return (

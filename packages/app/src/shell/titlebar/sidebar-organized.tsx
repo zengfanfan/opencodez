@@ -40,11 +40,10 @@ import { ProjectSessionRow } from "./project-session-row"
 import type { SidebarStripGrouping } from "./sidebar-customized"
 import {
   createPinnedSessions,
-  createSessionPins,
   PinMuteMenuItems,
   SidebarSectionLabel,
-  type SessionPins,
 } from "./sidebar-pins"
+import { useSessionPins, type SessionPins } from "./session-pins"
 import { isSidebarSessionActivity, mergeSidebarSessions } from "./sidebar-sessions"
 
 const SidebarState = Persistence.struct({
@@ -164,7 +163,7 @@ export function SidebarOrganized(props: {
   const isOpenTab = (server: ServerConnection.Key, sessionId: string) =>
     tabs.store.some((tab) => tab.type === "session" && tab.server === server && tab.sessionId === sessionId)
 
-  const pins = createSessionPins()
+  const pins = useSessionPins()
 
   const pinned = createPinnedSessions({
     pins,

@@ -1,4 +1,3 @@
-import { Schema } from "effect"
 import { batch, createEffect, createMemo, onCleanup, Show, startTransition } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Key } from "@solid-primitives/keyed"
@@ -11,9 +10,7 @@ import { useDialog } from "@opencode/ui/context/dialog"
 import { Menu } from "@opencode/ui/menu"
 import { arrayMove } from "@/runtime/array-move"
 import { useLanguage } from "@/runtime/i18n/language"
-import { Persistence } from "@/runtime/persistence/schema"
-import { Persist, persisted } from "@/runtime/persistence/storage"
-import { ServerConnection, useServers } from "@/runtime/server/registry"
+import { ServerConnection } from "@/runtime/server/registry"
 import { useGlobal, type ServerCtx } from "@/runtime/server/runtime"
 import { createSessionExporter } from "@/session/commands/export-session"
 import { sessionTreeIDs } from "@/session/requests/session-request-tree"
@@ -23,72 +20,15 @@ import { useSessionTabAvatarState } from "@/shell/layout/project-avatar-state"
 import { showToast } from "@/shell/notifications/toast"
 import { tabHref, tabKey, useTabs, type Tab } from "@/shell/tabs/tabs"
 import {
-  addPin,
-  recentSessionEndpoints,
   recentSessionKey,
-  removePin,
-  reorderPins,
   splitRecentSessionKey,
 } from "./recent-sessions-model"
 import { DeleteSessionDialog } from "./recent-sessions"
 import { notifySessionTabsRemoved } from "./session-events"
+import type { SessionPins } from "./session-pins"
 import { TabNavItem } from "./tab-nav"
 import { syncInactiveSession, type TabStripLeading } from "./tab-strip"
 import { sessionTabTitle } from "./tab-title"
-
-// The Recent sidebar's pin list, so pins carry over between the sidebar layouts.
-const PinsState = Persistence.struct({
-  pins: Persistence.array(Schema.String),
-})
-
-export type SessionPins = ReturnType<typeof createSessionPins>
-
-/** The ordered pinned sessions, local to this desktop. Two routes to the same endpoint pin one session. */
-export function createSessionPins() {
-  const servers = useServers()
-
-  const [state, setState, , ready] = persisted(Persist.global("sidebar.recent"), PinsState, { pins: [] })
-
-  const endpoints = createMemo(() => recentSessionEndpoints(servers.list, servers.ownUrl()))
-
-  const identity = (server: string, sessionID: string) => recentSessionKey(endpoints().get(server) ?? server, sessionID)
-
-  const identities = createMemo(
-    () =>
-      new Set(
-        state.pins.flatMap((key) => {
-          const pin = splitRecentSessionKey(key)
-
-          return pin ? [identity(pin.server, pin.sessionID)] : []
-        }),
-      ),
-  )
-
-  const unpin = (server: string, sessionID: string) => {
-    const next = removePin(state.pins, recentSessionKey(server, sessionID), endpoints())
-
-    if (next.length !== state.pins.length) setState("pins", next)
-  }
-
-  return {
-    ready,
-    keys: () => state.pins,
-    identity,
-    pinned: (server: string, sessionID: string) => identities().has(identity(server, sessionID)),
-    unpin,
-    toggle: (server: string, sessionID: string) => {
-      if (!identities().has(identity(server, sessionID))) {
-        setState("pins", (pins) => addPin(pins, recentSessionKey(server, sessionID)))
-
-        return
-      }
-
-      unpin(server, sessionID)
-    },
-    reorder: (visible: readonly string[], next: readonly string[]) =>
-      setState("pins", reorderPins(state.pins, visible, next)),
-  }
-}
 
 export function PinMuteMenuItems(props: { pins: SessionPins; server: string; sessionID: string }) {
   const language = useLanguage()
