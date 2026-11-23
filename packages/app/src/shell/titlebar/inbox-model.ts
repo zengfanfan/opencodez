@@ -115,6 +115,8 @@ export function createSessionInbox(options: { archived?: boolean; index?: Sessio
 
   const invalidateIndexes = (conn: ServerConnection.Any) => {
     for (const queryKey of sessionIndexKeys(conn)) void queryClient.invalidateQueries({ queryKey, exact: true })
+
+    void queryClient.invalidateQueries({ queryKey: ["project-sessions", conn] })
   }
 
   createEffect(() => {

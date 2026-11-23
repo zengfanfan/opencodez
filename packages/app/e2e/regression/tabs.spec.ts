@@ -2317,6 +2317,20 @@ test("the Cozy sidebar pins a session and a project and pages recent sessions", 
   await project.hover()
   await project.getByRole("button", { name: "Pin", exact: true }).click()
   await expect(project.getByRole("button", { name: "Unpin", exact: true })).toHaveCount(1)
+
+  await project.getByRole("button", { name: "CozyPins", exact: true }).click()
+
+  const nested = sidebar
+    .locator('[data-cozy-project-body] [data-slot="sidebar-cozy-row"][data-kind="session"]')
+    .filter({ hasText: /Cozy session 1$/ })
+
+  await expect(nested).toHaveCount(1)
+  await nested.hover()
+  await nested.getByRole("button", { name: "Pin", exact: true }).click()
+  await expect(
+    sidebar.locator('[data-cozy-project-body]').getByText("Cozy session 1", { exact: true }),
+  ).toHaveCount(0)
+
   await project.getByRole("button", { name: "Unpin", exact: true }).click()
   await expect(project.getByRole("button", { name: "Pin", exact: true })).toHaveCount(1)
 })
