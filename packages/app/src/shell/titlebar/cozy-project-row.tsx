@@ -53,7 +53,7 @@ export function CozyProjectRow(props: {
   )
 
   return (
-    <div class="group flex h-7 min-w-0 items-center rounded-[6px] pe-1 hover:bg-v2-overlay-simple-overlay-hover has-[:focus-visible]:bg-v2-overlay-simple-overlay-hover">
+    <div class="group flex h-7 min-w-0 items-center rounded-[6px] pe-1 hover:bg-v2-overlay-simple-overlay-hover has-[:focus-visible]:bg-v2-overlay-simple-overlay-hover" data-slot="sidebar-cozy-row" data-kind="project">
       <Tooltip class="flex h-7 min-w-0 flex-1" value={info()} appearance="large">
         <Show
           when={expandable()}

@@ -35,6 +35,7 @@ import { createCozyState } from "./cozy-state"
 import { createSessionInbox, inboxArchived, type InboxEntry } from "./inbox-model"
 import { useSessionPins } from "./session-pins"
 import { normalizeCozyOrder } from "./session-pins-state"
+import { splitRecentSessionKey } from "./recent-sessions-model"
 
 const same = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((value, index) => value === b[index])
@@ -140,6 +141,33 @@ export function SidebarCozy() {
       return index === -1 ? [] : [sessionPins.identity(key.slice(0, index), key.slice(index + 1))]
     }),
   )
+
+  // Pins outside the bounded index still show: load them one by one, and drop a pin whose session is gone.
+  const pinnedLoads = new Map<string, unknown>()
+
+  createEffect(() => {
+    if (!sessionPins.ready()) return
+
+    for (const key of sessionPins.keys()) {
+      const pin = splitRecentSessionKey(key)
+
+      if (!pin) continue
+      const ctx = global.serverCtx(ServerConnection.Key.make(pin.server))
+
+      if (!ctx || ctx.sdk.connection.status() !== "connected") continue
+
+      if (ctx.data.session.missing(pin.sessionID)) {
+        sessionPins.unpin(pin.server, pin.sessionID)
+        continue
+      }
+
+      if (ctx.data.session.get(pin.sessionID) || pinnedLoads.get(key) === ctx) continue
+      pinnedLoads.set(key, ctx)
+      void ctx.data.session.sync(pin.sessionID).catch(() => {
+        if (pinnedLoads.get(key) === ctx) pinnedLoads.delete(key)
+      })
+    }
+  })
 
   const pinnedProjects = createMemo(
     () =>

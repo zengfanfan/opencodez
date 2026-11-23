@@ -56,7 +56,7 @@ export function CozySessionRow(props: {
 
   return (
     <Menu.Context modal={false}>
-      <div class="group flex h-7 min-w-0 items-center rounded-[6px] hover:bg-v2-overlay-simple-overlay-hover data-[state=active]:bg-v2-overlay-simple-overlay-pressed" data-state={props.inbox.selected(entry()) ? "active" : undefined}>
+      <div class="group flex h-7 min-w-0 items-center rounded-[6px] hover:bg-v2-overlay-simple-overlay-hover data-[state=active]:bg-v2-overlay-simple-overlay-pressed" data-slot="sidebar-cozy-row" data-kind="session" data-state={props.inbox.selected(entry()) ? "active" : undefined}>
         <Tooltip class="flex h-7 min-w-0 flex-1" value={info()} appearance="large">
           <Menu.Context.Trigger
             as="button"

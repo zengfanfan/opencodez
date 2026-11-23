@@ -2286,6 +2286,98 @@ test("opening a session from the inbox keeps the list's scroll position and rows
   expect(await list.evaluate((element) => element.scrollTop)).toBe(offset)
 })
 
+test("the Cozy sidebar pins a session and a project and pages recent sessions", async ({ page }) => {
+  await mockWorkspace(page, {
+    name: "CozyPins",
+    project: { vcs: undefined },
+    sessions: Array.from({ length: 12 }, (_, index) => ({
+      id: `ses_cozy_${index}`,
+      title: `Cozy session ${index}`,
+    })),
+    seed: { settings: { appearance: { tabLayout: "cozy" } } },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const rows = sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+  await expect(rows).toHaveCount(10)
+  await sidebar.getByRole("button", { name: "Show more", exact: true }).click()
+  await expect(rows).toHaveCount(12)
+
+  const first = sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="session"]').filter({ hasText: "Cozy session 0" })
+  await first.hover()
+  await first.getByRole("button", { name: "Pin", exact: true }).click()
+  await expect(sidebar.getByText("Pinned", { exact: true })).toBeVisible()
+  await expect(
+    sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="session"]').filter({ hasText: "Cozy session 0" }),
+  ).toHaveCount(1)
+
+  const project = sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="project"]')
+  await project.hover()
+  await project.getByRole("button", { name: "Pin", exact: true }).click()
+  await expect(project.getByRole("button", { name: "Unpin", exact: true })).toHaveCount(1)
+})
+
+test("the Cozy sidebar lists registered projects and expands their sessions", async ({ page }) => {
+  const defaultDirectory = "C:/OpenCode/CozyDefault"
+  const otherDirectory = "C:/OpenCode/CozyOther"
+  const defaultProject = project({
+    id: "proj_cozy_default",
+    directory: defaultDirectory,
+    name: "Cozy default",
+    vcs: undefined,
+    time: { created: T0, updated: T0, active: T0 },
+  })
+  const otherProject = project({
+    id: "proj_cozy_other",
+    directory: otherDirectory,
+    name: "Cozy other",
+    time: { created: T0 + 1000, updated: T0 + 1000, active: T0 + 1000 },
+  })
+
+  await mockWorkspace(page, {
+    name: "CozyProjects",
+    directory: defaultDirectory,
+    project: { id: "proj_cozy_default", vcs: undefined },
+    projects: [defaultProject, otherProject],
+    sessions: [
+      { id: "ses_cozy_default", title: "Default project session" },
+      { id: "ses_cozy_other", title: "Other project session", directory: otherDirectory, projectID: "proj_cozy_other" },
+    ],
+    seed: { settings: { appearance: { tabLayout: "cozy" } }, usedProjects: { local: ["proj_cozy_default", "proj_cozy_other"] } },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const other = sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="project"]').filter({ hasText: "Cozy other" })
+  await expect(other).toBeVisible()
+  await expect(sidebar.getByText("Default project session", { exact: true })).toBeVisible()
+  await other.getByRole("button", { name: "Cozy other", exact: true }).click()
+  await expect(sidebar.getByText("Other project session", { exact: true })).toBeVisible()
+})
+
+test("the Cozy sidebar shows the default project's sessions on one 28px row", async ({ page }) => {
+  await mockWorkspace(page, {
+    name: "Cozy",
+    project: { vcs: undefined },
+    sessions: [
+      { id: "ses_cozy_one", title: "Cozy one" },
+      { id: "ses_cozy_two", title: "Cozy two" },
+    ],
+    seed: { settings: { appearance: { tabLayout: "cozy" } } },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  await expect(sidebar).toBeVisible()
+  await expect(sidebar.getByText("Recent", { exact: true })).toBeVisible()
+  await expect(sidebar.getByText("Projects", { exact: true })).toBeVisible()
+
+  const rows = sidebar.locator('[data-slot="sidebar-cozy-item"]')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.filter({ hasText: "Cozy one" })).toHaveCSS("height", "28px")
+})
+
 test("renaming an inbox card updates the same session on Home", async ({ page }) => {
   await mockWorkspace(page, {
     name: "RenameInbox",

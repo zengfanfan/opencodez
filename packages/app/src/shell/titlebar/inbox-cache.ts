@@ -1,5 +1,5 @@
 import type { SessionInfo } from "@opencode/client/promise"
-import { createStore } from "solid-js/store"
+import { createSignal } from "solid-js"
 
 export type SessionIndexMode = "inbox" | "home"
 
@@ -26,36 +26,40 @@ export function sessionIndexKeys(
 /** A stale index read must not put an archived or deleted session back on screen. */
 type ArchiveFact = number | "restored" | "deleted"
 
-const [archiveFacts, setArchiveFacts] = createStore<Record<string, ArchiveFact>>({})
+const [archiveFacts, setArchiveFacts] = createSignal<Record<string, ArchiveFact>>({})
 
 const factKey = (server: string, sessionID: string) => `${server}\u0000${sessionID}`
 
+const writeFact = (key: string, fact: ArchiveFact) => setArchiveFacts((current) => ({ ...current, [key]: fact }))
+
 export function markSessionArchived(server: string, sessionID: string, at = Date.now()) {
-  setArchiveFacts(factKey(server, sessionID), at)
+  writeFact(factKey(server, sessionID), at)
 }
 
 export function markSessionRestored(server: string, sessionID: string) {
-  setArchiveFacts(factKey(server, sessionID), "restored")
+  writeFact(factKey(server, sessionID), "restored")
 }
 
 export function markSessionDeleted(server: string, sessionID: string) {
-  setArchiveFacts(factKey(server, sessionID), "deleted")
+  writeFact(factKey(server, sessionID), "deleted")
 }
 
 export function sessionArchivedAt(server: string, sessionID: string) {
-  const fact = archiveFacts[factKey(server, sessionID)]
+  const fact = archiveFacts()[factKey(server, sessionID)]
 
   return typeof fact === "number" ? fact : undefined
 }
 
 export function sessionDeleted(server: string, sessionID: string) {
-  return archiveFacts[factKey(server, sessionID)] === "deleted"
+  return archiveFacts()[factKey(server, sessionID)] === "deleted"
 }
 
 /** Applies the latest observed state over a server or cached index. */
 export function applyArchiveFacts(server: string, sessions: readonly SessionInfo[]) {
+  const facts = archiveFacts()
+
   return sessions.flatMap((session) => {
-    const fact = archiveFacts[factKey(server, session.id)]
+    const fact = facts[factKey(server, session.id)]
 
     if (fact === "deleted") return []
     if (fact === "restored") {

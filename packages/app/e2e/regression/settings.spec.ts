@@ -2716,6 +2716,19 @@ test("the Side tabs interface mode switches to vertical tabs and survives reload
   await expect(page.locator('[data-slot="titlebar-tabs"]')).toHaveCount(0)
 })
 
+test("the Cozy interface mode switches to the Cozy sidebar and survives reload", async ({ page }) => {
+  const { settings } = await open(page)
+  const layout = settings.getByRole("group", { name: "Interface layout", exact: true })
+  await expect(layout.getByRole("radio")).toHaveCount(4)
+  await layout.getByText("Cozy", { exact: true }).click()
+  await expect(layout.getByRole("radio", { name: "Cozy", exact: true })).toBeChecked()
+  await expect(page.locator('[data-slot="sidebar-cozy"]')).toBeVisible()
+
+  await page.reload()
+  await expect(layout.getByRole("radio", { name: "Cozy", exact: true })).toBeChecked()
+  await expect(page.locator('[data-slot="sidebar-cozy"]')).toBeVisible()
+})
+
 for (const viewport of [
   { name: "desktop", width: 1280, height: 720, bottom: false },
   { name: "mobile", width: 390, height: 844, bottom: true },
