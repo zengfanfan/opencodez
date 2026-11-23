@@ -1,5 +1,6 @@
 import { Show, startTransition, Suspense, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
+import { makeEventListener } from "@solid-primitives/event-listener"
 import { createMediaQuery } from "@solid-primitives/media"
 import { ResizeHandle } from "@opencode/ui/resize-handle"
 import { useDialog } from "@opencode/ui/context/dialog"
@@ -43,6 +44,29 @@ export default function Layout(props: ParentProps) {
   const servers = useServers()
   const tabs = useTabs()
   const mobile = createMediaQuery("(max-width: 767px)")
+
+  // The desktop native menu is built in the main process, which cannot see the DOM target. It offers Select
+  // All on every right-click, so only the places that benefit from it keep it: editable fields and the agent's
+  // replies. Every other surface, including chrome, blank gaps, user messages and dialogs, cancels it.
+  if (platform.platform === "desktop" && platform.os !== "macos") {
+    makeEventListener(window, "contextmenu", (event) => {
+      // App menus run first in the document bubble phase; an already handled click keeps its behavior.
+      if (event.defaultPrevented) return
+
+      const target = event.target
+
+      if (!(target instanceof Element)) return
+
+      if (
+        target.closest(
+          'input, textarea, [contenteditable]:not([contenteditable="false"]), [data-slot="session-turn-assistant-content"], [data-slot="session-turn-thinking-row"]',
+        )
+      )
+        return
+
+      event.preventDefault()
+    })
+  }
 
   createTipToasts()
 

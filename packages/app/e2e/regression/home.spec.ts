@@ -78,6 +78,71 @@ test("choosing Customize replaces Home with Settings in desktop side tabs", asyn
   await expect(page.getByTestId("settings-screen")).toBeVisible()
 })
 
+// The desktop native menu is built in the main process from generic click parameters, so it cannot tell
+// where it was opened. This asserts the renderer whitelist: only editable fields and agent replies let
+// Electron open it; it does not observe the native menu itself.
+test("the desktop shell keeps the native context menu to inputs and agent replies", async ({ page }) => {
+  await mockStressTimeline(page)
+  await seed(page, {
+    usedProjects: { local: [fixture.project.id] },
+    tabs: [fixture.sourceID, fixture.targetID],
+    settings: { appearance: { tabLayout: "vertical" } },
+  })
+  await page.goto(
+    `/e2e/utils/windows-menu.html?${new URLSearchParams({
+      server: fixture.serverKey,
+      // The fixture mounts its server as a sidecar, which is the route's server key.
+      path: sessionHref(fixture.targetID, "sidecar"),
+    })}`,
+  )
+
+  await expect(page.locator("#vertical-tabs-sidebar")).toBeVisible()
+  await expect(page.locator('[data-slot="titlebar-v2"]')).toBeVisible()
+  await expect(page.locator('[data-slot="session-timeline-scroll"]')).toBeVisible()
+  await expect(page.locator('[data-component="composer-editor"]')).toBeEditable()
+
+  const prevented = (selector: string) =>
+    page.evaluate((selector) => {
+      const target = document.querySelector(selector)
+
+      if (!target) throw new Error(`Missing ${selector}`)
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true })
+      target.dispatchEvent(event)
+
+      return event.defaultPrevented
+    }, selector)
+
+  expect(await prevented('[data-slot="vertical-tabs-mount"]')).toBe(true)
+  expect(await prevented('[data-slot="titlebar-v2"]')).toBe(true)
+  expect(await prevented('[data-slot="session-timeline-scroll"]')).toBe(true)
+  expect(await prevented('[data-slot="session-timeline-scroll"] [data-component="user-message"]')).toBe(true)
+  expect(await prevented('[data-slot="session-timeline-scroll"] [data-slot="session-turn-assistant-content"]')).toBe(
+    false,
+  )
+  expect(await prevented('[data-component="composer-editor"]')).toBe(false)
+
+  await page.getByRole("button", { name: "Search sessions", exact: true }).click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog).toBeVisible()
+  expect(
+    await dialog.evaluate((element) => {
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true })
+      element.dispatchEvent(event)
+
+      return event.defaultPrevented
+    }),
+  ).toBe(true)
+  expect(
+    await dialog.getByRole("combobox").evaluate((element) => {
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true })
+      element.dispatchEvent(event)
+
+      return event.defaultPrevented
+    }),
+  ).toBe(false)
+  await page.keyboard.press("Escape")
+})
+
 async function openProjects(page: Page) {
   const remote = project({ id: "proj_remote_site", directory: "/work/website", name: "Website" })
 
