@@ -2727,6 +2727,9 @@ test("the Cozy interface mode switches to the Cozy sidebar and survives reload",
   await page.reload()
   await expect(layout.getByRole("radio", { name: "Cozy", exact: true })).toBeChecked()
   await expect(page.locator('[data-slot="sidebar-cozy"]')).toBeVisible()
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.locator('[data-slot="sidebar-cozy"]')).toHaveCount(0)
 })
 
 for (const viewport of [

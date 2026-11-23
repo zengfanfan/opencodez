@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-chained-type-assertions -- partial fixtures stand in for the session and project records the model only reads
 import type { Project } from "@/runtime/server/types"
 import type { ServerConnection } from "@/runtime/server/registry"
 import type { InboxEntry, InboxStatus } from "./inbox-model"

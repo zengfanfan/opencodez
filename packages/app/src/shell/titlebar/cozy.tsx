@@ -114,12 +114,14 @@ export function SidebarCozy() {
 
   const resolveProject = (entry: InboxEntry) => {
     const server = entry.server
+
     const matching = entry.ctx.projects
       .list()
       .filter((project) => project.id === entry.session.projectID && project.time.archived === undefined)
 
     if (matching.length === 0) return undefined
     const directory = pathKey(entry.session.location.directory)
+
     const project =
       matching.length === 1
         ? matching[0]
@@ -134,6 +136,7 @@ export function SidebarCozy() {
 
   const entries = createMemo(() => inbox.entries().filter((entry) => !inboxArchived(entry)))
   const sessionKey = (entry: InboxEntry) => sessionPins.identity(entry.server, entry.session.id)
+
   const pinIdentities = createMemo(() =>
     sessionPins.keys().flatMap((key) => {
       const index = key.indexOf("\u0000")
@@ -221,6 +224,7 @@ export function SidebarCozy() {
   const more = (key: string, total: number) => setViewState("limits", key, Math.min(total, limit(key) + 10))
   const less = (key: string) => setViewState("limits", key, Math.max(10, limit(key) - 10))
   const expanded = (project: CozyProject) => !!viewState.projectsById[project.key]
+
   const toggleProject = (project: CozyProject) =>
     setViewState("projectsById", project.key, (value: boolean | undefined) => !value)
 
@@ -234,8 +238,10 @@ export function SidebarCozy() {
 
   const pinProject = (project: CozyProject) => sessionPins.appendCozy(`p:${project.key}`)
   const unpinProject = (project: CozyProject) => sessionPins.removeCozy(`p:${project.key}`)
+
   const pinSession = (session: CozySession) =>
     sessionPins.pinWithCozy(session.entry.server, session.entry.session.id)
+
   const unpinSession = (session: CozySession) =>
     sessionPins.unpin(session.entry.server, session.entry.session.id)
 
@@ -255,8 +261,10 @@ export function SidebarCozy() {
   const reorderPinned = (initialIndex: number, index: number) => {
     const visible = view().pinned.map(pinKey)
     const next = arrayMove(visible, initialIndex, index)
+
     const sessions = (keys: readonly string[]) =>
-      keys.filter((key) => key.startsWith("s:")).map((key) => key.slice(2))
+      keys.flatMap((key) => (key.startsWith("s:") ? [key.slice(2)] : []))
+
     const currentSessions = sessions(visible)
     const nextSessions = sessions(next)
     const rawCurrent = currentSessions.flatMap((key) => rawByIdentity().get(key) ?? [])
@@ -268,9 +276,10 @@ export function SidebarCozy() {
   }
 
   const reorderProjects = (partition: CozyPartition, initialIndex: number, index: number) => {
-    const all = projects()
-      .filter((project) => project.server === partition.server && !pinnedProjects().has(project.key))
-      .map((project) => project.project)
+    const all = projects().flatMap((project) =>
+      project.server === partition.server && !pinnedProjects().has(project.key) ? [project.project] : [],
+    )
+
     const visible = partition.items.map((project) => project.project.worktree)
     const next = arrayMove(visible, initialIndex, index)
 
@@ -302,6 +311,7 @@ export function SidebarCozy() {
       for (const partition of view().projects) {
         for (const project of page(`project-group:${partition.server}`, partition.items).items) {
           if (!expanded(project)) continue
+
           for (const session of page(`project:${project.key}`, project.sessions).items) list.push(session.entry)
         }
       }

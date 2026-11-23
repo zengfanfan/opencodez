@@ -2306,6 +2306,7 @@ test("the Cozy sidebar pins a session and a project and pages recent sessions", 
 
   const first = sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="session"]').filter({ hasText: "Cozy session 0" })
   await first.hover()
+  await expect(page.getByRole("tooltip")).toContainText("Cozy session 0")
   await first.getByRole("button", { name: "Pin", exact: true }).click()
   await expect(sidebar.getByText("Pinned", { exact: true })).toBeVisible()
   await expect(
@@ -2316,11 +2317,14 @@ test("the Cozy sidebar pins a session and a project and pages recent sessions", 
   await project.hover()
   await project.getByRole("button", { name: "Pin", exact: true }).click()
   await expect(project.getByRole("button", { name: "Unpin", exact: true })).toHaveCount(1)
+  await project.getByRole("button", { name: "Unpin", exact: true }).click()
+  await expect(project.getByRole("button", { name: "Pin", exact: true })).toHaveCount(1)
 })
 
 test("the Cozy sidebar lists registered projects and expands their sessions", async ({ page }) => {
   const defaultDirectory = "C:/OpenCode/CozyDefault"
   const otherDirectory = "C:/OpenCode/CozyOther"
+
   const defaultProject = project({
     id: "proj_cozy_default",
     directory: defaultDirectory,
@@ -2328,6 +2332,7 @@ test("the Cozy sidebar lists registered projects and expands their sessions", as
     vcs: undefined,
     time: { created: T0, updated: T0, active: T0 },
   })
+
   const otherProject = project({
     id: "proj_cozy_other",
     directory: otherDirectory,
@@ -2354,6 +2359,59 @@ test("the Cozy sidebar lists registered projects and expands their sessions", as
   await expect(sidebar.getByText("Default project session", { exact: true })).toBeVisible()
   await other.getByRole("button", { name: "Cozy other", exact: true }).click()
   await expect(sidebar.getByText("Other project session", { exact: true })).toBeVisible()
+})
+
+test("the Cozy sidebar drags a project and keeps its order after reload", async ({ page }) => {
+  const alphaDirectory = "C:/OpenCode/CozyAlpha"
+  const betaDirectory = "C:/OpenCode/CozyBeta"
+
+  const alphaProject = project({
+    id: "proj_cozy_alpha",
+    directory: alphaDirectory,
+    name: "Cozy alpha",
+    time: { created: T0, updated: T0, active: T0 },
+  })
+
+  const betaProject = project({
+    id: "proj_cozy_beta",
+    directory: betaDirectory,
+    name: "Cozy beta",
+    time: { created: T0 + 1000, updated: T0 + 1000, active: T0 + 1000 },
+  })
+
+  await mockWorkspace(page, {
+    name: "CozyOrder",
+    directory: alphaDirectory,
+    project: { id: "proj_cozy_alpha" },
+    projects: [alphaProject, betaProject],
+    sessions: [
+      { id: "ses_cozy_alpha", title: "Alpha session" },
+      { id: "ses_cozy_beta", title: "Beta session", directory: betaDirectory, projectID: "proj_cozy_beta" },
+    ],
+    seed: { settings: { appearance: { tabLayout: "cozy" } }, usedProjects: { local: ["proj_cozy_alpha", "proj_cozy_beta"] } },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const projects = sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="project"]')
+  const alpha = projects.filter({ hasText: "Cozy alpha" })
+  const beta = projects.filter({ hasText: "Cozy beta" })
+  await expect(alpha).toHaveCount(1)
+  await expect(beta).toHaveCount(1)
+  await expect(projects.first()).toContainText("Cozy beta")
+
+  const from = await alpha.boundingBox()
+  const to = await beta.boundingBox()
+
+  if (!from || !to) throw new Error("Missing project row bounds")
+  await page.mouse.move(from.x + 30, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(to.x + 30, to.y + to.height / 2, { steps: 12 })
+  await page.mouse.up()
+
+  await expect(projects.first()).toContainText("Cozy alpha")
+  await page.reload()
+  await expect(projects.first()).toContainText("Cozy alpha")
 })
 
 test("the Cozy sidebar shows the default project's sessions on one 28px row", async ({ page }) => {

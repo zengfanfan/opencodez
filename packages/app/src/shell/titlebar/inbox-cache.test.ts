@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-chained-type-assertions -- partial fixtures stand in for session records the cache only passes through
 import type { SessionInfo } from "@opencode/client/promise"
 import {
   applyArchiveFacts,

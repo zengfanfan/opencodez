@@ -240,15 +240,16 @@ export function createHomeSessionsController(home: HomeController) {
     if (!ctx || !conn) return []
 
     return retainHomeSessions(
-      ctx.data.session.apply(
-        applyArchiveFacts(
-          ServerConnection.key(conn),
-          mergeHomeSessionIndex(
-            [...fetchedSessions(), ...(scoped.isPending ? [] : (scoped.data?.().sessions ?? []))],
-            ctx.data.session.known(),
-          ),
+      ctx.data.session
+        .apply(
+          applyArchiveFacts(
+            ServerConnection.key(conn),
+            mergeHomeSessionIndex(
+              [...fetchedSessions(), ...(scoped.isPending ? [] : (scoped.data?.().sessions ?? []))],
+              ctx.data.session.known(),
+            ),
+          ).filter((session) => session.time.archived === undefined),
         ),
-      ),
       HOME_SESSION_LIMIT,
       Date.now(),
     )
