@@ -83,6 +83,7 @@ export function CozyProjectRow(props: {
           class="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
           onClick={(event) => {
             event.stopPropagation()
+
             if (props.project.pinned) props.onUnpin()
             else props.onPin()
           }}

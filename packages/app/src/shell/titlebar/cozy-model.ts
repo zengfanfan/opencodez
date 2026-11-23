@@ -59,6 +59,7 @@ export function cozyProjectOrder(projects: readonly Project[], saved: readonly s
   const fresh = projects
     .filter((project) => !saved.includes(project.worktree))
     .toSorted((a, b) => b.time.created - a.time.created || a.worktree.localeCompare(b.worktree))
+
   const fixed = saved.flatMap((worktree) => projects.find((project) => project.worktree === worktree) ?? [])
 
   return [...fresh, ...fixed]
@@ -86,6 +87,7 @@ export function cozyPlacement(input: {
   const projectsByKey = new Map<CozyProjectKey, CozyProject>(
     input.projects.map((project) => [project.key, { ...project, pinned: false, sessions: [] }]),
   )
+
   const entriesByKey = new Map(input.entries.map((entry) => [input.sessionKey(entry), entry]))
   const pinned: CozyItem[] = []
   const recent: CozySession[] = []
@@ -134,6 +136,7 @@ export function cozyPlacement(input: {
   for (const ref of input.pinnedOrder) {
     if (ref.kind === "project") {
       const project = projectsByKey.get(ref.key)
+
       if (!project || !project.pinned || usedProjects.has(ref.key)) continue
       usedProjects.add(ref.key)
       ordered.push({ kind: "project", project, count: project.sessions.length })
@@ -153,6 +156,7 @@ export function cozyPlacement(input: {
   for (const entry of input.entries) {
     if (!input.pinnedSessions.has(input.sessionKey(entry))) continue
     const key = input.sessionKey(entry)
+
     if (orderedSessions.has(key)) continue
     ordered.push({ kind: "session", session: { key, entry, pinned: true } })
   }

@@ -22,6 +22,7 @@ export function normalizeCozyOrder(stored: readonly string[], identity: PinIdent
     if (key.startsWith("p:")) {
       if (seen.has(key)) return []
       seen.add(key)
+
       return [key]
     }
 
@@ -34,6 +35,7 @@ export function normalizeCozyOrder(stored: readonly string[], identity: PinIdent
 
     if (seen.has(next)) return []
     seen.add(next)
+
     return [next]
   })
 }

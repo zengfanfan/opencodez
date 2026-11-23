@@ -438,7 +438,7 @@ export function SidebarCozy() {
                 <For each={view().projects}>
                   {(partition) => (
                     <div class="flex min-w-0 flex-col gap-0.5">
-                      <Show when={servers.list.length > 1}>
+                      <Show when={servers.visible.length > 1}>
                         <div class="flex h-6 items-center px-2 text-12-regular text-v2-text-text-muted">
                           {servers.label(servers.list.find((conn) => ServerConnection.key(conn) === partition.server)!)}
                         </div>

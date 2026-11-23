@@ -26,6 +26,7 @@ export function CozySessionRow(props: {
   const project = () => entry().ctx.projects.forSession(entry().session)
   const title = () => sessionTabTitle(entry().session.title, language.t("session.tab.session"))
   const branch = () => props.inbox.branch(entry())
+
   const statusLabel = () =>
     entry().status === "ready" ? undefined : language.t(`sidebar.inbox.status.${entry().status}`)
 
@@ -33,7 +34,9 @@ export function CozySessionRow(props: {
     const seconds = Math.max(0, Math.floor((Date.now() - entry().session.time.updated) / 1000))
 
     if (seconds < 60) return language.plural("sidebar.inbox.elapsed.seconds", seconds)
+
     if (seconds < 3600) return language.plural("sidebar.inbox.elapsed.minutes", Math.floor(seconds / 60))
+
     if (seconds < 86_400) return language.plural("sidebar.inbox.elapsed.hours", Math.floor(seconds / 3600))
 
     return language.plural("sidebar.inbox.elapsed.days", Math.floor(seconds / 86_400))
@@ -121,6 +124,7 @@ export function CozySessionRow(props: {
             class="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
             onClick={(event) => {
               event.stopPropagation()
+
               if (props.session.pinned) props.onUnpin()
               else props.onPin()
             }}
