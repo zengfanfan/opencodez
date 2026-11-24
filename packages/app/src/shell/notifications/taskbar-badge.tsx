@@ -145,25 +145,12 @@ export function TaskbarBadge() {
 
 const SCALE_FACTORS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
 
-// A 3x5 pixel font: blocky at 16px, but every edge lands on a whole pixel, so the number stays sharp.
-const GLYPHS = new Map<string, readonly string[]>([
-  ["0", ["111", "101", "101", "101", "111"]],
-  ["1", ["010", "110", "010", "010", "111"]],
-  ["2", ["111", "001", "111", "100", "111"]],
-  ["3", ["111", "001", "111", "001", "111"]],
-  ["4", ["101", "101", "111", "001", "001"]],
-  ["5", ["111", "100", "111", "001", "111"]],
-  ["6", ["111", "100", "111", "101", "111"]],
-  ["7", ["111", "001", "010", "010", "010"]],
-  ["8", ["111", "101", "111", "101", "111"]],
-  ["9", ["111", "101", "111", "001", "111"]],
-  ["+", ["000", "010", "111", "010", "000"]],
-])
-
 function drawBadge(count: number) {
   const label = badgeLabel(count)
   const styles = getComputedStyle(document.documentElement)
   const background = styles.getPropertyValue("--v2-red-900").trim() || "#97252b"
+  const family = styles.getPropertyValue("--font-family-sans").trim() || "sans-serif"
+  const weight = styles.getPropertyValue("--font-weight-bold").trim() || "670"
 
   return SCALE_FACTORS.map((scaleFactor) => {
     const size = Math.round(16 * scaleFactor)
@@ -179,40 +166,12 @@ function drawBadge(count: number) {
     context.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2)
     context.fill()
 
-    drawLabel(context, label, size)
+    context.fillStyle = "#ffffff"
+    context.font = `${weight} ${Math.round(size * (label.length > 1 ? 0.5 : 0.6))}px ${family}`
+    context.textAlign = "center"
+    context.textBaseline = "middle"
+    context.fillText(label, size / 2, size / 2 + Math.max(1, Math.round(size * 0.03)))
 
     return { scaleFactor, dataUrl: canvas.toDataURL("image/png") }
   })
-}
-
-function drawLabel(context: CanvasRenderingContext2D, label: string, size: number) {
-  const glyphs = [...label].flatMap((character) => {
-    const glyph = GLYPHS.get(character)
-
-    return glyph ? [glyph] : []
-  })
-
-  if (glyphs.length === 0) return
-
-  const widthUnits = glyphs.reduce((total, glyph) => total + (glyph[0]?.length ?? 0) + 1, -1)
-  const scale = Math.max(1, Math.min(Math.floor((size - 2) / widthUnits), Math.floor((size - 2) / 5)))
-  const width = widthUnits * scale
-  const height = 5 * scale
-  const left = Math.round((size - width) / 2)
-  const top = Math.round((size - height) / 2)
-  let offset = 0
-
-  context.fillStyle = "#ffffff"
-
-  for (const glyph of glyphs) {
-    glyph.forEach((row, y) => {
-      for (let x = 0; x < row.length; x++) {
-        if (row[x] !== "1") continue
-
-        context.fillRect(left + (offset + x) * scale, top + y * scale, scale, scale)
-      }
-    })
-
-    offset += (glyph[0]?.length ?? 0) + 1
-  }
 }
