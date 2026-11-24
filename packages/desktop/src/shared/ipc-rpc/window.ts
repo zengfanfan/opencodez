@@ -52,7 +52,12 @@ export const WindowSetTrafficLightsPosition = Rpc.make("WindowSetTrafficLightsPo
 export const WindowSetTaskbarBadge = Rpc.make("WindowSetTaskbarBadge", {
   payload: {
     count: Schema.Int,
-    icon: Schema.String,
+    icons: Schema.Array(
+      Schema.Struct({
+        scaleFactor: Schema.Number,
+        dataUrl: Schema.String,
+      }),
+    ),
     description: Schema.String,
     mount: Schema.Number,
     sequence: Schema.Int,

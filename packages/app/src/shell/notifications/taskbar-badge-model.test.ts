@@ -183,7 +183,7 @@ describe("taskbar badge send", () => {
     await sendTaskbarBadge(platform, { mount: 1, sequence: 1 }, 3, "3 unread", () => {
       drawn++
 
-      return "icon"
+      return [{ scaleFactor: 1, dataUrl: "icon" }]
     })
 
     expect(drawn).toBe(0)
@@ -204,7 +204,7 @@ describe("taskbar badge send", () => {
     await sendTaskbarBadge(platform, { mount: 1, sequence: 1 }, 3, "3 unread", () => {
       drawn++
 
-      return "icon"
+      return [{ scaleFactor: 1, dataUrl: "icon" }]
     }, () => false)
 
     expect(drawn).toBe(0)
@@ -221,9 +221,9 @@ describe("taskbar badge send", () => {
       },
     }
 
-    await sendTaskbarBadge(platform, { mount: 2, sequence: 3 }, 0, "", () => "unused")
+    await sendTaskbarBadge(platform, { mount: 2, sequence: 3 }, 0, "", () => [])
 
-    expect(sent).toEqual([{ mount: 2, sequence: 3, count: 0, icon: "", description: "" }])
+    expect(sent).toEqual([{ mount: 2, sequence: 3, count: 0, icons: [], description: "" }])
   })
 
   test("draws and sends the current count", async () => {
@@ -236,9 +236,13 @@ describe("taskbar badge send", () => {
       },
     }
 
-    await sendTaskbarBadge(platform, { mount: 2, sequence: 3 }, 4, "4 unread", () => "icon")
+    await sendTaskbarBadge(platform, { mount: 2, sequence: 3 }, 4, "4 unread", () => [
+      { scaleFactor: 1, dataUrl: "icon" },
+    ])
 
-    expect(sent).toEqual([{ mount: 2, sequence: 3, count: 4, icon: "icon", description: "4 unread" }])
+    expect(sent).toEqual([
+      { mount: 2, sequence: 3, count: 4, icons: [{ scaleFactor: 1, dataUrl: "icon" }], description: "4 unread" },
+    ])
   })
 
   test("clears with a fresh sequence when a current draw throws", async () => {
@@ -265,7 +269,7 @@ describe("taskbar badge send", () => {
     )
 
     expect(allocated).toBe(1)
-    expect(sent).toEqual([{ mount: 2, sequence: 4, count: 0, icon: "", description: "" }])
+    expect(sent).toEqual([{ mount: 2, sequence: 4, count: 0, icons: [], description: "" }])
   })
 
   test("does not clear when a stale attempt fails", async () => {
@@ -278,7 +282,9 @@ describe("taskbar badge send", () => {
       },
     }
 
-    await sendTaskbarBadge(platform, { mount: 2, sequence: 3 }, 4, "4 unread", () => "icon", () => false, () => {
+    await sendTaskbarBadge(platform, { mount: 2, sequence: 3 }, 4, "4 unread", () => [
+      { scaleFactor: 1, dataUrl: "icon" },
+    ], () => false, () => {
       allocated++
 
       return { mount: 2, sequence: 4 }
@@ -301,14 +307,22 @@ describe("taskbar badge send", () => {
       },
     }
 
-    await sendTaskbarBadge(platform, { mount: 2, sequence: 3 }, 4, "4 unread", () => "icon", () => true, () => ({
+    await sendTaskbarBadge(platform, { mount: 2, sequence: 3 }, 4, "4 unread", () => [
+      { scaleFactor: 1, dataUrl: "icon" },
+    ], () => true, () => ({
       mount: 2,
       sequence: 4,
     }))
 
     expect(sent).toEqual([
-      { mount: 2, sequence: 3, count: 4, icon: "icon", description: "4 unread" },
-      { mount: 2, sequence: 4, count: 0, icon: "", description: "" },
+      {
+        mount: 2,
+        sequence: 3,
+        count: 4,
+        icons: [{ scaleFactor: 1, dataUrl: "icon" }],
+        description: "4 unread",
+      },
+      { mount: 2, sequence: 4, count: 0, icons: [], description: "" },
     ])
   })
 })

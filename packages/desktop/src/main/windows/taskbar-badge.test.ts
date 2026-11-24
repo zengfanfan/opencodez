@@ -4,15 +4,17 @@ import {
   applyTaskbarBadge,
   claimTaskbarBadgeMount,
   decideTaskbarBadge,
-  isOverlaySize,
+  isTaskbarBadgeIconSize,
   resetTaskbarBadge,
   TASKBAR_DESCRIPTION_MAX,
+  TASKBAR_ICON_LIMIT,
   TASKBAR_ICON_MAX,
   taskbarBadgeDecoded,
-  taskbarBadgeImage,
+  taskbarBadgeIconSize,
   taskbarBadgeUpdate,
   truncateTaskbarDescription,
-  type TaskbarBadgeImage,
+  type TaskbarBadgeIcon,
+  type TaskbarBadgeMultiImage,
   type TaskbarBadgeRequest,
   type TaskbarBadgeWindow,
 } from "./taskbar-badge"
@@ -23,14 +25,26 @@ afterEach(() => {
   Object.defineProperty(process, "platform", { value: originalPlatform })
 })
 
-const image = (width = 32, height = width, empty = false): TaskbarBadgeImage => ({
-  isEmpty: () => empty,
-  getSize: () => ({ width, height }),
+const multiImage = (size = 16, empty = false) => {
+  const representations: Array<{ scaleFactor: number; dataURL: string }> = []
+
+  const image: TaskbarBadgeMultiImage = {
+    isEmpty: () => empty,
+    getSize: () => ({ width: size, height: size }),
+    addRepresentation: (option) => representations.push(option),
+  }
+
+  return { image, representations }
+}
+
+const icon = (scaleFactor = 1, dataUrl = String(taskbarBadgeIconSize(scaleFactor))): TaskbarBadgeIcon => ({
+  scaleFactor,
+  dataUrl,
 })
 
 const request = (overrides: Partial<TaskbarBadgeRequest> = {}): TaskbarBadgeRequest => ({
   count: 3,
-  icon: "data:image/png;base64,abc",
+  icons: [icon(1), icon(1.25), icon(2)],
   description: "3 unread sessions",
   mount: 2,
   sequence: 1,
@@ -52,12 +66,23 @@ const fakeWindow = (destroyed = false) => {
 const fakeContents = () => ({}) as WebContents
 
 describe("taskbar badge update", () => {
-  test("decodes a fresh request and clears for zero or an overlong icon", () => {
+  test("decodes a fresh request and clears for zero, no icons or an overlong icon", () => {
     expect(taskbarBadgeUpdate(undefined, request())).toMatchObject({ kind: "decode", state: { mount: 2, sequence: 1 } })
     expect(taskbarBadgeUpdate(undefined, request({ count: 0 }))).toMatchObject({ kind: "clear" })
-    expect(taskbarBadgeUpdate(undefined, request({ icon: "x".repeat(TASKBAR_ICON_MAX + 1) }))).toMatchObject({
-      kind: "clear",
-    })
+    expect(taskbarBadgeUpdate(undefined, request({ icons: [] }))).toMatchObject({ kind: "clear" })
+    expect(
+      taskbarBadgeUpdate(undefined, request({ icons: [icon(1, "x".repeat(TASKBAR_ICON_MAX + 1))] })),
+    ).toMatchObject({ kind: "clear" })
+  })
+
+  test("rejects too many icons and invalid scale factors", () => {
+    const tooMany = Array.from({ length: TASKBAR_ICON_LIMIT + 1 }, (_, index) => icon(1 + index * 0.01))
+
+    expect(taskbarBadgeUpdate(undefined, request({ icons: tooMany }))).toMatchObject({ kind: "clear" })
+
+    for (const scaleFactor of [0.5, 4, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(taskbarBadgeUpdate(undefined, request({ icons: [icon(scaleFactor)] }))).toMatchObject({ kind: "clear" })
+    }
   })
 
   test("rejects invalid mount and sequence values", () => {
@@ -93,48 +118,57 @@ describe("taskbar badge update", () => {
 })
 
 describe("taskbar badge image decisions", () => {
-  test("accepts only 16x16 and 32x32 images", () => {
-    expect(isOverlaySize({ width: 16, height: 16 })).toBe(true)
-    expect(isOverlaySize({ width: 32, height: 32 })).toBe(true)
-    expect(isOverlaySize({ width: 16, height: 32 })).toBe(false)
-    expect(isOverlaySize({ width: 64, height: 64 })).toBe(false)
-    expect(isOverlaySize({ width: 0, height: 0 })).toBe(false)
+  test("maps scale factors to 16-48 pixel bitmaps", () => {
+    expect([1, 1.25, 1.5, 1.75, 2, 2.5, 3].map(taskbarBadgeIconSize)).toEqual([16, 20, 24, 28, 32, 40, 48])
+    expect(isTaskbarBadgeIconSize({ width: 16, height: 16 }, 1)).toBe(true)
+    expect(isTaskbarBadgeIconSize({ width: 20, height: 20 }, 1.25)).toBe(true)
+    expect(isTaskbarBadgeIconSize({ width: 32, height: 32 }, 2)).toBe(true)
+    expect(isTaskbarBadgeIconSize({ width: 16, height: 32 }, 1)).toBe(false)
+    expect(isTaskbarBadgeIconSize({ width: 32, height: 32 }, 1)).toBe(false)
+    expect(isTaskbarBadgeIconSize({ width: 0, height: 0 }, 1)).toBe(false)
   })
 
-  test("clears for null, undefined, empty, wrong-sized or throwing images", () => {
-    expect(taskbarBadgeImage(null, "x")).toEqual({ kind: "clear" })
-    expect(taskbarBadgeImage(undefined, "x")).toEqual({ kind: "clear" })
-    expect(taskbarBadgeImage(image(32, 32, true), "x")).toEqual({ kind: "clear" })
-    expect(taskbarBadgeImage(image(64), "x")).toEqual({ kind: "clear" })
-    expect(
-      taskbarBadgeImage(
-        {
-          isEmpty: () => false,
-          getSize: () => {
-            throw new Error("size")
-          },
-        },
-        "x",
-      ),
-    ).toEqual({ kind: "clear" })
-    expect(taskbarBadgeImage(image(32), "x")).toMatchObject({ kind: "set", description: "x" })
+  test("adds every representation to the 1x base", () => {
+    const base = multiImage(16)
+
+    const decision = taskbarBadgeDecoded([icon(1), icon(1.25), icon(2)], "x", (dataUrl) =>
+      dataUrl === "16" ? base.image : multiImage(Number(dataUrl)).image,
+    )
+
+    expect(decision.kind).toBe("set")
+    expect(base.representations).toEqual([
+      { scaleFactor: 1.25, dataURL: "20" },
+      { scaleFactor: 2, dataURL: "32" },
+    ])
   })
 
-  test("clears when the decoder throws or returns an invalid image", () => {
+  test("clears for a missing base, empty or wrong-sized bitmaps, or a throwing decoder", () => {
+    expect(taskbarBadgeDecoded([icon(1.25)], "x", () => multiImage(20).image)).toEqual({ kind: "clear" })
+    expect(taskbarBadgeDecoded([icon(1)], "x", () => multiImage(16, true).image)).toEqual({ kind: "clear" })
+    expect(taskbarBadgeDecoded([icon(1)], "x", () => multiImage(20).image)).toEqual({ kind: "clear" })
+    expect(taskbarBadgeDecoded([icon(1), icon(1.25)], "x", (dataUrl) => multiImage(Number(dataUrl) === 20 ? 24 : 16).image)).toEqual({
+      kind: "clear",
+    })
     expect(
-      taskbarBadgeDecoded("icon", "x", () => {
+      taskbarBadgeDecoded([icon(1)], "x", () => {
         throw new Error("decode")
       }),
     ).toEqual({ kind: "clear" })
-    expect(taskbarBadgeDecoded("icon", "x", () => image(64))).toEqual({ kind: "clear" })
-    expect(taskbarBadgeDecoded("icon", "x", () => image(32))).toMatchObject({ kind: "set" })
+    expect(
+      taskbarBadgeDecoded([icon(1)], "x", () => ({
+        isEmpty: () => false,
+        getSize: () => {
+          throw new Error("size")
+        },
+      })),
+    ).toEqual({ kind: "clear" })
   })
 })
 
 describe("taskbar badge window ordering", () => {
   test("claims a monotonic mount id per window", () => {
-    const a = {}
-    const b = {}
+    const a = fakeContents()
+    const b = fakeContents()
 
     expect(claimTaskbarBadgeMount(a)).toBe(1)
     expect(claimTaskbarBadgeMount(a)).toBe(2)
@@ -197,7 +231,7 @@ describe("taskbar badge window ordering", () => {
     expect(calls).toEqual([])
 
     applyTaskbarBadge(window, { kind: "clear" })
-    const badgeImage = image(32)
+    const badgeImage = multiImage(16).image
     applyTaskbarBadge(window, { kind: "set", image: badgeImage, description: "badge" })
     expect(calls).toHaveLength(2)
     expect(calls[0]).toEqual({ image: null, description: "" })

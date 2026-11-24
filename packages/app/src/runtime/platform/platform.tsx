@@ -33,10 +33,16 @@ export type FatalRendererErrorLog = {
   os?: DesktopOS
 }
 
+/** One physical taskbar-badge bitmap: `scaleFactor` 1 is 16x16, 1.25 is 20x20, and so on. */
+export type TaskbarBadgeIcon = {
+  readonly scaleFactor: number
+  readonly dataUrl: string
+}
+
 /** A Windows taskbar badge update; `mount` and `sequence` order updates from overlapping windows/mounts. */
 export type TaskbarBadgeUpdate = {
   readonly count: number
-  readonly icon: string
+  readonly icons: readonly TaskbarBadgeIcon[]
   readonly description: string
   readonly mount: number
   readonly sequence: number
