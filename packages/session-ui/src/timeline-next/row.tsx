@@ -24,6 +24,8 @@ import {
 import { createStore } from "solid-js/store"
 import { DiffChanges } from "@opencode/ui/diff-changes"
 import { Icon } from "@opencode/ui/icon"
+import { IconButton } from "@opencode/ui/icon-button"
+import { Tooltip } from "@opencode/ui/tooltip"
 import { Spring, frameLoop, prefersReducedMotion } from "@opencode/ui/motion"
 import { springStyle } from "@opencode/ui/motion/solid"
 import { Dynamic } from "solid-js/web"
@@ -39,6 +41,7 @@ import type { TimelineDetail } from "../timeline/detail"
 import { TimelineRow, type PartRef } from "../timeline/timeline-row"
 import { userMessageRuns, userRunSpring } from "../timeline/user-runs"
 import { IDLE_TURN_PHASE, sameRef, viewTurnPhase } from "../timeline/turn-phase-machine"
+import { goalKickoff } from "../timeline/goal"
 import {
   DISPOSED_STEER_ARRIVAL_EVENT,
   INITIAL_STEER_ARRIVAL_STATE,
@@ -48,6 +51,8 @@ import {
 } from "../timeline/steer-arrival-machine"
 import { Badge } from "@opencode/ui/badge"
 import { attached } from "../components/message-file"
+import { createCopyFeedback } from "../components/copy"
+import { messageTime, messageTimeDetail } from "../message/message-time"
 import { CompactionMessage, CompactionQueued } from "./compaction"
 import { unwrapErrorMessage } from "./errors"
 import { TimelineEventItem, TimelineEventRow } from "./event-row"
@@ -249,16 +254,16 @@ export function createNextTimelineRowRenderer(input: {
 
   // Duration and the footer's completion time both describe the turn's last completed step.
   const lastCompletedStep = (messageID: string) => {
-    const user = input.projection.messageByID().get(messageID)
+    const opener = input.projection.messageByID().get(messageID)
 
-    if (user?.type !== "user") return null
+    if (opener?.type !== "user" && !goalKickoff(opener)) return null
 
     const message = input.projection
       .assistantMessagesByParent()
       .get(messageID)
       ?.findLast((message) => message.time.completed !== undefined)
 
-    if (message?.time.completed === undefined || message.time.completed < user.time.created) return undefined
+    if (message?.time.completed === undefined || message.time.completed < opener.time.created) return undefined
 
     return message
   }
@@ -580,7 +585,9 @@ export function createNextTimelineRowRenderer(input: {
                   return promptVisible[row().userMessageID] ?? true
                 }}
                 onJumpToPrompt={
-                  input.revealMessage ? () => input.revealMessage!(row().userMessageID) : undefined
+                  input.revealMessage && input.projection.messageByID().get(row().userMessageID)?.type === "user"
+                    ? () => input.revealMessage!(row().userMessageID)
+                    : undefined
                 }
                 sources={turnSourcesValue()}
                 onOpenSources={() => sourcesHost?.open(row().userMessageID)}
@@ -882,6 +889,9 @@ export function createNextTimelineRowRenderer(input: {
                     <bdi>{objective()}</bdi>
                   </div>
                 </div>
+                <Show when={message()?.time.created}>
+                  {(at) => <GoalFooter at={at()} text={objective()} />}
+                </Show>
               </div>
             </div>
           )}
@@ -1538,11 +1548,44 @@ function outcomeNoticeKey(state: string | undefined) {
   return "ui.sessionTimeline.notice.finished"
 }
 
+/** The goal card reads as the user's message, so its footer offers the time and the objective it can copy. */
+function GoalFooter(props: { at: number; text: string }) {
+  const i18n = useI18n()
+  const copy = createCopyFeedback()
+  const label = () => (copy.copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyMessage"))
+  const detail = () => messageTimeDetail(props.at, i18n.locale())
+
+  return (
+    <div data-slot="user-message-footer">
+      <Tooltip value={detail()} appearance="standard" placement="top">
+        <time
+          data-slot="user-message-time"
+          dateTime={new Date(props.at).toISOString()}
+          dir="auto"
+          tabIndex={0}
+          aria-label={detail()}
+        >
+          {messageTime(props.at, i18n.locale())}
+        </time>
+      </Tooltip>
+      <Tooltip appearance="compact" value={label()} placement="top" gutter={4} forceOpen={copy.copied() || undefined}>
+        <IconButton
+          icon={<Icon name={copy.copied() ? "check" : "copy"} />}
+          size="small"
+          variant="ghost-muted"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => copy.copy(props.text)}
+          aria-label={label()}
+        />
+      </Tooltip>
+    </div>
+  )
+}
+
 /**
  * Grows a row from nothing to its natural height while it fades in; rows below follow its edge.
  */
-function growIn(el: HTMLElement, onDone: () => void) {
-  if (prefersReducedMotion()) return onDone()
+function growIn(el: HTMLElement, onDone: () => void) {  if (prefersReducedMotion()) return onDone()
   const height = Spring.fromDuration(0, { duration: 0.2, bounce: 0 })
   const opacity = Spring.fromDuration(0, { duration: 0.3, bounce: 0 }).set(1)
   const content = el.firstElementChild instanceof HTMLElement ? el.firstElementChild : undefined

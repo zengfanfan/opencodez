@@ -22,6 +22,7 @@ import {
   type TurnThinkingPlacement,
 } from "../timeline/turn-phase-machine"
 import { errorInfo } from "./errors"
+import { goalKickoff } from "../timeline/goal"
 import { noticeEvent, toolEvent, workKey, type TimelineEvent } from "./events"
 import {
   contentGroup,
@@ -378,6 +379,15 @@ function constructTurns(input: Input) {
     if (echoesUserShell(message, userShellIDs) || movedInPlace(message)) return
 
     if (isNotice(message)) {
+      // A goal starts its own turn: the previous reply is complete, so it keeps its Copy footer while the goal runs.
+      if (goalKickoff(message)) {
+        const turn: Turn = { id: message.id, time: message.time, entries: [{ type: "notice", message }] }
+        turns.push(turn)
+        current = turn
+
+        return
+      }
+
       // A notice still waiting for delivery, such as a subagent reporting back, already happened, so it joins the
       // working turn above the status line, even when input the user steered in meanwhile waits below it.
       const turn = input.pendingInputIDs?.has(message.id) ? (execution?.turn ?? current) : current
@@ -838,6 +848,9 @@ function indexAssistantMessages(messages: SessionMessageInfo[]) {
 
   messages.forEach((message) => {
     if (message.type === "user") userID = message.id
+
+    // The goal opens a turn of its own, so its reply belongs to it, not to the prompt before it.
+    if (goalKickoff(message)) userID = message.id
 
     if (message.type === "shell") userID = undefined
 

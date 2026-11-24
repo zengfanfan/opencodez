@@ -1001,6 +1001,104 @@ test("does not show the jump button while the prompt is in view", async ({ page 
   await expect(reply.getByRole("button", { name: "Jump to prompt", exact: true })).toHaveCount(0)
 })
 
+test("keeps the previous reply footer and gives the goal card its own footer", async ({ page }) => {
+  await setupTimeline(page, {
+    settings: { newTimeline: true },
+    sessionStatus: { [sessionID]: { type: "busy" } },
+    sessionMessages: [
+      userMessage([userText("Set a goal.", { id: "prt_goal_user_text" })], {
+        id: "msg_goal_user",
+        created: 1_700_000_000_000,
+      }),
+      assistantMessage([{ id: "prt_goal_reply", type: "text", text: "Finished answer." }], {
+        id: "msg_goal_reply",
+        parentID: "msg_goal_user",
+        created: 1_700_000_001_000,
+      }),
+      {
+        id: "msg_goal_card",
+        type: "synthetic",
+        text: "Goal kickoff",
+        description: "Goal: Ship it",
+        metadata: { source: "goal", goalID: "goal_1" },
+        time: { created: 1_700_000_004_000 },
+      },
+    ],
+  })
+
+  const reply = page.locator('[data-component="text-part"]', { hasText: "Finished answer." })
+  const replyFooter = reply.locator('[data-slot="text-part-copy-wrapper"]')
+  await expect(replyFooter).toBeVisible()
+  await expect(replyFooter.getByRole("button", { name: "Copy response", exact: true })).toBeVisible()
+
+  const goal = page.locator('[data-component="user-message"][data-goal]')
+  const goalFooter = goal.locator('[data-slot="user-message-footer"]')
+  await expect(goalFooter).toHaveCSS("opacity", "0")
+  await goal.hover()
+  await expect(goalFooter).toHaveCSS("opacity", "1")
+  await expect(goalFooter.locator('[data-slot="user-message-time"]')).toHaveAttribute(
+    "datetime",
+    "2023-11-14T22:13:24.000Z",
+  )
+  await expect(goalFooter.getByRole("button", { name: "Copy message", exact: true })).toBeVisible()
+
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+  await goalFooter.getByRole("button", { name: "Copy message", exact: true }).click()
+  await expect(goalFooter.getByRole("button", { name: "Copied", exact: true })).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("Ship it")
+})
+
+for (const newTimeline of [false, true]) {
+  test(`gives the goal's own reply its footer once the goal settles (${newTimeline ? "new" : "old"} timeline)`, async ({
+    page,
+  }) => {
+    await setupTimeline(page, {
+      settings: { newTimeline },
+      sessionMessages: [
+        userMessage([userText("Set a goal.", { id: "prt_goal_settled_user_text" })], {
+          id: "msg_goal_settled_user",
+          created: 1_700_000_000_000,
+        }),
+        assistantMessage([{ id: "prt_goal_settled_previous", type: "text", text: "Finished answer." }], {
+          id: "msg_goal_settled_previous",
+          parentID: "msg_goal_settled_user",
+          created: 1_700_000_001_000,
+        }),
+        {
+          id: "msg_goal_settled_card",
+          type: "synthetic",
+          text: "Goal kickoff",
+          description: "Goal: Ship it",
+          metadata: { source: "goal", goalID: "goal_settled" },
+          time: { created: 1_700_000_004_000 },
+        },
+        assistantMessage([{ id: "prt_goal_settled_reply", type: "text", text: "Goal answer." }], {
+          id: "msg_goal_settled_reply",
+          parentID: "msg_goal_settled_card",
+          created: 1_700_000_005_000,
+        }),
+      ],
+    })
+
+    const previous = page.locator('[data-component="text-part"]', { hasText: "Finished answer." })
+    const previousFooter = previous.locator('[data-slot="text-part-copy-wrapper"]')
+    await expect(previousFooter).toBeVisible()
+    await expect(previousFooter.getByRole("button", { name: "Copy response", exact: true })).toBeVisible()
+
+    const goalReply = page.locator('[data-component="text-part"]', { hasText: "Goal answer." })
+    const goalReplyFooter = goalReply.locator('[data-slot="text-part-copy-wrapper"]')
+    await expect(goalReplyFooter).toBeVisible()
+    await expect(goalReplyFooter.getByRole("button", { name: "Copy response", exact: true })).toBeVisible()
+    await expect(goalReplyFooter.locator('[data-slot="text-part-completed-at"]')).toBeVisible()
+    // The goal is a notice, not a prompt row, so its reply has nowhere to jump and offers no button.
+    await expect(goalReplyFooter.getByRole("button", { name: "Jump to prompt", exact: true })).toHaveCount(0)
+
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+    await goalReplyFooter.getByRole("button", { name: "Copy response", exact: true }).click()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("Goal answer.")
+  })
+}
+
 test("keeps the jump button until a full prompt line is visible", async ({ page }) => {
   const text = Array.from({ length: 40 }, (_, index) => `Reply line ${index + 1}`).join("\n\n")
 
@@ -1058,7 +1156,6 @@ test("keeps the jump button until a full prompt line is visible", async ({ page 
   await bubble.evaluate((element) => element.scrollIntoView({ block: "center" }))
   await expect(jump).toHaveCount(0)
 })
-
 
 test("keeps the reply footer inside 390px with the jump button", async ({ page }) => {
   const text = Array.from({ length: 40 }, (_, index) => `Narrow line ${index + 1}`).join("\n\n")

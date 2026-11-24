@@ -16,6 +16,7 @@ import {
   currentToolHasLoadedFiles,
 } from "../message/current-tool-state"
 import { TimelineRow, type PartGroup, type PartRef, type TimelineRowMap } from "./timeline-row"
+import { goalKickoff } from "./goal"
 import { timelineCategory, timelineNoticePlacement, timelineNoticeRequired, type TimelineDetail } from "./detail"
 import {
   IDLE_TURN_PHASE,
@@ -289,6 +290,15 @@ export namespace Timeline {
 
     messages.forEach((message) => {
       if (isNotice(message)) {
+        // A goal starts its own turn: the previous reply is complete, so it keeps its Copy footer while the goal runs.
+        if (goalKickoff(message)) {
+          const turn: Turn = { id: message.id, time: message.time, entries: [{ type: "notice", message }] }
+          turns.push(turn)
+          current = turn
+
+          return
+        }
+
         if (current) current.entries.push({ type: "notice", message })
 
         if (!current) leading.push(message)
@@ -909,6 +919,9 @@ function indexAssistantMessages(messages: SessionMessageInfo[]) {
 
   messages.forEach((message) => {
     if (message.type === "user") userID = message.id
+
+    // The goal opens a turn of its own, so its reply belongs to it, not to the prompt before it.
+    if (goalKickoff(message)) userID = message.id
 
     if (message.type === "shell") userID = undefined
 

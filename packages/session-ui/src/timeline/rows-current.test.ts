@@ -40,6 +40,33 @@ describe("current session timeline rows", () => {
     ])
   })
 
+  test("starts a goal as its own turn so the previous reply keeps its footer", () => {
+    const source = [
+      { id: "msg_goal_previous", type: "user", text: "previous", time: { created: 1 } },
+      {
+        id: "msg_goal_answer",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "finished answer" }],
+        time: { created: 2, completed: 3 },
+      },
+      {
+        id: "msg_goal",
+        type: "synthetic",
+        text: "Goal kickoff",
+        description: "Goal: ship it",
+        metadata: { source: "goal", goalID: "goal_1" },
+        time: { created: 4 },
+      },
+    ] satisfies SessionMessageInfo[]
+
+    const result = Timeline.constructSessionMessageRows(source, true, { type: "busy" })
+
+    expect(result.activeMessageID).toBe("msg_goal")
+    expect(result.turnPhaseByID.get("msg_goal_previous")?.status).toBe("idle")
+  })
+
   test("renders a current shell message as a standalone turn", () => {
     const source = [
       {

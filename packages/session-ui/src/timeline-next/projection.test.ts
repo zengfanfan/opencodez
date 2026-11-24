@@ -22,6 +22,53 @@ const step = (id: string, created: number, rest: Partial<SessionMessageAssistant
 })
 
 describe("New timeline projection", () => {
+  test("a goal starts its own turn so the previous reply keeps its footer", () => {
+    const messages: SessionMessageInfo[] = [
+      { id: "user", type: "user", text: "Set a goal.", time: { created: 0 } },
+      step("answer", 1, {
+        content: [{ type: "text", text: "Finished answer." }],
+        time: { created: 1, completed: 2 },
+      }),
+      {
+        id: "goal",
+        type: "synthetic",
+        text: "Goal kickoff",
+        description: "Goal: Ship it",
+        metadata: { source: "goal", goalID: "goal_1" },
+        time: { created: 3 },
+      },
+      step("goal-reply", 4, {
+        content: [{ type: "text", text: "Goal answer." }],
+        time: { created: 4, completed: 5 },
+      }),
+    ]
+
+    const result = createRoot((dispose) => {
+      const projection = createNextTimelineProjection({
+        sessionMessages: () => messages,
+        status: () => ({ type: "busy" }),
+        timelineDetail: () => messagesOnly,
+      })
+
+      const value = {
+        active: projection.activeMessageID(),
+        previous: projection.turnPhaseByID().get("user"),
+        previousAssistants: projection.assistantMessagesByParent().get("user")?.map((message) => message.id),
+        goalAssistants: projection.assistantMessagesByParent().get("goal")?.map((message) => message.id),
+      }
+
+      dispose()
+
+      return value
+    })
+
+    expect(result.active).toBe("goal")
+    expect(result.previous?.status).toBe("idle")
+    // Each turn owns its replies, so the goal's answer cannot take the previous reply's footer.
+    expect(result.previousAssistants).toEqual(["answer"])
+    expect(result.goalAssistants).toEqual(["goal-reply"])
+  })
+
   test("a stopped turn says how long it worked where the work stopped, above Interrupted and what followed", () => {
     const document = replayScript(scenarios["Feature work"], Number.MAX_SAFE_INTEGER, 0).document
 

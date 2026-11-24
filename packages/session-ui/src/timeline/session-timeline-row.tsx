@@ -63,6 +63,7 @@ import {
   type ReasoningMode,
 } from "./projection"
 import { IDLE_TURN_PHASE, sameRef, viewTurnPhase } from "./turn-phase-machine"
+import { goalKickoff } from "./goal"
 import {
   DISPOSED_STEER_ARRIVAL_EVENT,
   INITIAL_STEER_ARRIVAL_STATE,
@@ -263,16 +264,16 @@ export function createSessionTimelineRowRenderer(input: {
 
   // Duration and the footer's completion time both describe the turn's last completed step.
   const lastCompletedStep = (messageID: string) => {
-    const user = input.projection.messageByID().get(messageID)
+    const opener = input.projection.messageByID().get(messageID)
 
-    if (user?.type !== "user") return null
+    if (opener?.type !== "user" && !goalKickoff(opener)) return null
 
     const message = input.projection
       .assistantMessagesByParent()
       .get(messageID)
       ?.findLast((message) => message.time.completed !== undefined)
 
-    if (message?.time.completed === undefined || message.time.completed < user.time.created) return undefined
+    if (message?.time.completed === undefined || message.time.completed < opener.time.created) return undefined
 
     return message
   }
@@ -577,7 +578,9 @@ export function createSessionTimelineRowRenderer(input: {
                   return promptVisible[row().userMessageID] ?? true
                 }}
                 onJumpToPrompt={
-                  input.revealMessage ? () => input.revealMessage!(row().userMessageID) : undefined
+                  input.revealMessage && input.projection.messageByID().get(row().userMessageID)?.type === "user"
+                    ? () => input.revealMessage!(row().userMessageID)
+                    : undefined
                 }
                 sources={turnSourcesValue()}
                 onOpenSources={() => sourcesHost?.open(row().userMessageID)}

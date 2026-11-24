@@ -304,6 +304,47 @@ describe("createTimelineProjection", () => {
     expect(result.rowByKey.get("user-message:user-1")).toBe(result.rows[2])
   })
 
+  test("a goal starts its own turn and owns its reply", () => {
+    const messages = [
+      { id: "user-1", type: "user", text: "first", time: { created: 1 } },
+      {
+        id: "assistant-1",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "answer" }],
+        time: { created: 2, completed: 3 },
+      },
+      {
+        id: "goal",
+        type: "synthetic",
+        text: "Goal kickoff",
+        description: "Goal: Ship it",
+        metadata: { source: "goal", goalID: "goal_1" },
+        time: { created: 4 },
+      },
+      {
+        id: "assistant-2",
+        type: "assistant",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+        content: [{ type: "text", text: "goal answer" }],
+        time: { created: 5, completed: 6 },
+      },
+    ] satisfies SessionMessageInfo[]
+
+    const result = createTimelineProjection({
+      sessionMessages: messages,
+      status: { type: "idle" },
+      reasoningMode: "full",
+    })
+
+    expect(result.assistantMessagesByParent.get("user-1")?.map((message) => message.id)).toEqual(["assistant-1"])
+    expect(result.assistantMessagesByParent.get("goal")?.map((message) => message.id)).toEqual(["assistant-2"])
+    expect(result.turnPhaseByID.get("user-1")?.status).toBe("idle")
+    expect(result.turnPhaseByID.get("goal")?.status).toBe("idle")
+  })
+
   test("reuses a stable projected row array", () => {
     const messages = [
       { id: "user-1", type: "user", text: "first", time: { created: 1 } },
