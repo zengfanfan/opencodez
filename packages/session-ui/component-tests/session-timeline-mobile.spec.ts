@@ -42,7 +42,7 @@ story.describe("touch timeline", () => {
     await expect(details).toBeVisible()
     await expect(details).toContainText("Claude Sonnet 4")
     await expect(details).toContainText("Balanced")
-    await expect(details).toContainText("60.0 tok/s")
+    await expect(details).toContainText("60 tok/s")
 
     await page.touchscreen.tap(10, 10)
     await expect(details).toBeHidden()

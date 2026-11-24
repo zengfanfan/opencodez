@@ -84,7 +84,7 @@ OPENCODE_BIN=<build dir>/cli-darwin-arm64/bin/opencode bun script/capture-assets
   syntax-highlighted code stays under 100.
 - When the experiment ships as the default, drop the two flags.
 
-Text that still changes between runs: the run time and tok/s in the footer (`Build · Claude Opus 5.5 · 5.6s · 155.2 tok/s`), the "Thought · Nms" time and the `bun test` time (`[6.00ms]`). For that reason the SHA-256 changes on each run. To make the files byte-stable, the product team would need a frozen clock in the CLI (see section 5). Until then, compare captures with a perceptual diff, not with the hash.
+Text that still changes between runs: the run time and tok/s in the footer (`Build · Claude Opus 5.5 · 5.6s · 155 tok/s`), the "Thought · Nms" time and the `bun test` time (`[6.00ms]`). For that reason the SHA-256 changes on each run. To make the files byte-stable, the product team would need a frozen clock in the CLI (see section 5). Until then, compare captures with a perceptual diff, not with the hash.
 
 ### SDK: code-snippet render (not automated yet)
 

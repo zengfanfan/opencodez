@@ -23,7 +23,7 @@ story("reveals turn details from the agent icon", async ({ mount, page }) => {
   await expect(details).toContainText("Claude Sonnet 4")
   await expect(details).toContainText("Balanced")
   await expect(details).toContainText("5m 2s")
-  await expect(details).toContainText("60.0 tok/s")
+  await expect(details).toContainText("60 tok/s")
 
   await copy.hover()
   await expect(details).toBeHidden()

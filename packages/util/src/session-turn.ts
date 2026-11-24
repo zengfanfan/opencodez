@@ -55,6 +55,11 @@ export function tokensPerSecond(messages: readonly Message[], message: Message, 
   return output / (total / 1_000)
 }
 
+/** How many decimals a tok/s label keeps: one below ten only when the rounded first decimal is non-zero. */
+export function tokensPerSecondDecimals(value: number) {
+  return value < 10 && Math.round(value * 10) % 10 !== 0 ? 1 : 0
+}
+
 export function legacy(messages: readonly Message[]) {
   return !messages.some((message) => message.type === "idle")
 }

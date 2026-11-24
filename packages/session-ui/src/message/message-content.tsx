@@ -58,7 +58,7 @@ import type {
 import type { SessionUserActions, SessionUserAttachmentReference, SessionUserComment } from "../actions"
 import { agentIcon } from "./agent-icon"
 import { agentLabel } from "./agent-label"
-import { formatMetaText, type MetaItem } from "./message-meta"
+import { formatMetaText, formatTokensPerSecond, type MetaItem } from "./message-meta"
 import { messageTime, messageTimeDetail } from "./message-time"
 import { isInterruptedError } from "../timeline/turn-phase-machine"
 import { attached, typeLabel } from "../components/message-file"
@@ -1234,10 +1234,7 @@ export function AssistantTextContent(props: {
     if (props.turnTokensPerSecond === undefined) return undefined
 
     return i18n.t("ui.message.tokensPerSecond", {
-      value: new Intl.NumberFormat(i18n.locale(), {
-        minimumFractionDigits: 1,
-        maximumFractionDigits: 1,
-      }).format(props.turnTokensPerSecond),
+      value: formatTokensPerSecond(props.turnTokensPerSecond, i18n.locale()),
     })
   })
 

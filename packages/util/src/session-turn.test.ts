@@ -96,6 +96,15 @@ test("preserves missing-anchor fallbacks without including the absent assistant'
   expect(SessionTurn.tokensPerSecond([], absent)).toBeUndefined()
 })
 
+test("tok/s keeps one decimal only below ten when the first decimal survives rounding", () => {
+  expect(SessionTurn.tokensPerSecondDecimals(9.44)).toBe(1)
+  expect(SessionTurn.tokensPerSecondDecimals(9.04)).toBe(0)
+  expect(SessionTurn.tokensPerSecondDecimals(9.96)).toBe(0)
+  expect(SessionTurn.tokensPerSecondDecimals(10.4)).toBe(0)
+  expect(SessionTurn.tokensPerSecondDecimals(0.06)).toBe(1)
+  expect(SessionTurn.tokensPerSecondDecimals(0.04)).toBe(0)
+})
+
 test("measures a marker-era turn from its first prompt across steers", () => {
   const timed = (id: string, created: number, streamed: number, completed: number, output: number) =>
     step(id, { created, streamed, completed }, output)
