@@ -8,15 +8,17 @@ import { Button } from "@opencode/ui/button"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { Loader } from "@opencode/ui/loader"
 import { createProjectActions } from "@/home/projects/actions"
+import { addProjects } from "@/home/projects/add"
 import { useProjectBrowser } from "@/home/projects/browse"
 import { arrayMove } from "@/runtime/array-move"
 import { useLanguage } from "@/runtime/i18n/language"
 import { ServerConnection, useServers } from "@/runtime/server/registry"
 import { useGlobal } from "@/runtime/server/runtime"
+import { homeProjectDirectories } from "@/shell/layout/helpers"
 import { pathKey } from "@/workspaces/path-key"
+import { useDirectoryPicker } from "@/workspaces/selection/picker"
 import {
   cozyCleanPins,
-  cozyDefaultProject,
   cozyMixPins,
   cozyPlacement,
   cozyProjectKey,
@@ -67,14 +69,16 @@ export function SidebarCozy() {
   const cozyState = createCozyState()
   const actions = createProjectActions()
   const browse = useProjectBrowser()
+  const pickDirectory = useDirectoryPicker()
 
+  // The Projects group starts collapsed so Recent leads; expanding it shows every registered project.
   const [viewState, setViewState] = createStore<{
     pinned: boolean
     projects: boolean
     recent: boolean
     projectsById: Record<string, boolean>
     limits: Record<string, number>
-  }>({ pinned: true, projects: true, recent: true, projectsById: {}, limits: {} })
+  }>({ pinned: true, projects: false, recent: true, projectsById: {}, limits: {} })
 
   const connections = createMemo(() =>
     servers.visible.flatMap((conn) => {
@@ -97,20 +101,6 @@ export function SidebarCozy() {
       }))
     }),
   )
-
-  const defaults = createMemo(() => {
-    const result = new Map<ServerConnection.Key, string>()
-
-    for (const { conn, ctx } of connections()) {
-      const server = ServerConnection.key(conn)
-      const list = ctx.projects.list().filter((project) => project.time.archived === undefined)
-      const project = cozyDefaultProject(list)
-
-      if (project) result.set(server, cozyProjectKey(server, pathKey(project.worktree)))
-    }
-
-    return result
-  })
 
   const resolveProject = (entry: InboxEntry) => {
     const server = entry.server
@@ -200,7 +190,6 @@ export function SidebarCozy() {
     cozyPlacement({
       entries: entries(),
       projects: projects(),
-      defaultProjects: defaults(),
       resolveProject,
       sessionKey,
       pinnedSessions: new Set(pinIdentities()),
@@ -228,22 +217,31 @@ export function SidebarCozy() {
   const toggleProject = (project: CozyProject) =>
     setViewState("projectsById", project.key, (value: boolean | undefined) => !value)
 
-  const count = (project: CozyProject) => {
-    if (defaults().get(project.server) === project.key && !project.pinned) {
-      return view().recent.filter((session) => session.entry.server === project.server).length
-    }
+  const count = (project: CozyProject) => project.sessions.length
 
-    return project.sessions.length
+  const addProject = () => {
+    const target = connections()[0]
+
+    if (!target) return
+
+    pickDirectory({
+      server: target.conn,
+      title: language.t("command.project.open"),
+      multiple: true,
+      onSelect: (result) => {
+        const ctx = global.serverCtx(ServerConnection.key(target.conn))
+
+        if (ctx) void addProjects(ctx, homeProjectDirectories(result))
+      },
+    })
   }
 
   const pinProject = (project: CozyProject) => sessionPins.appendCozy(`p:${project.key}`)
   const unpinProject = (project: CozyProject) => sessionPins.removeCozy(`p:${project.key}`)
 
-  const pinSession = (session: CozySession) =>
-    sessionPins.pinWithCozy(session.entry.server, session.entry.session.id)
+  const pinSession = (session: CozySession) => sessionPins.pinWithCozy(session.entry.server, session.entry.session.id)
 
-  const unpinSession = (session: CozySession) =>
-    sessionPins.unpin(session.entry.server, session.entry.session.id)
+  const unpinSession = (session: CozySession) => sessionPins.unpin(session.entry.server, session.entry.session.id)
 
   const rawByIdentity = createMemo(() => {
     const result = new Map<string, string>()
@@ -262,8 +260,7 @@ export function SidebarCozy() {
     const visible = view().pinned.map(pinKey)
     const next = arrayMove(visible, initialIndex, index)
 
-    const sessions = (keys: readonly string[]) =>
-      keys.flatMap((key) => (key.startsWith("s:") ? [key.slice(2)] : []))
+    const sessions = (keys: readonly string[]) => keys.flatMap((key) => (key.startsWith("s:") ? [key.slice(2)] : []))
 
     const currentSessions = sessions(visible)
     const nextSessions = sessions(next)
@@ -334,7 +331,6 @@ export function SidebarCozy() {
         project={project}
         count={count(project)}
         expanded={expanded(project)}
-        expandable={project.pinned || defaults().get(project.server) !== project.key}
         onToggle={() => toggleProject(project)}
         onPin={() => pinProject(project)}
         onUnpin={() => unpinProject(project)}
@@ -342,7 +338,7 @@ export function SidebarCozy() {
         onViewHistory={browse}
       />
       <Show when={expanded(project)}>
-        <div data-cozy-project-body class="flex flex-col gap-0.5 ps-3">
+        <div data-cozy-project-body class="flex flex-col ps-3">
           <For each={page(`project:${project.key}`, project.sessions).items}>
             {(session) => (
               <CozySessionRow
@@ -383,9 +379,13 @@ export function SidebarCozy() {
           </div>
         }
       >
-        <div data-slot="sidebar-cozy-scroll" data-scrollable class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-1">
+        <div
+          data-slot="sidebar-cozy-scroll"
+          data-scrollable
+          class="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pb-1"
+        >
           <Show when={view().pinned.length > 0}>
-            <div role="group" aria-labelledby="sidebar-cozy-pinned" class="flex shrink-0 flex-col gap-2 pb-2.5">
+            <div role="group" aria-labelledby="sidebar-cozy-pinned" class="flex shrink-0 flex-col gap-1 pb-1">
               <CozySectionHeader
                 id="sidebar-cozy-pinned"
                 label={language.t("sidebar.recent.pinned")}
@@ -426,69 +426,67 @@ export function SidebarCozy() {
             </div>
           </Show>
 
-          <Show when={view().projects.length > 0}>
-            <div role="group" aria-labelledby="sidebar-cozy-projects" class="flex shrink-0 flex-col gap-2 pb-2.5">
-              <CozySectionHeader
-                id="sidebar-cozy-projects"
-                label={language.t("sidebar.organize.projects")}
-                expanded={viewState.projects}
-                onToggle={() => setViewState("projects", (value: boolean) => !value)}
-              />
-              <Show when={viewState.projects}>
-                <For each={view().projects}>
-                  {(partition) => (
-                    <div class="flex min-w-0 flex-col gap-0.5">
-                      <Show when={servers.visible.length > 1}>
-                        <div class="flex h-6 items-center px-2 text-12-regular text-v2-text-text-muted">
-                          {servers.label(servers.list.find((conn) => ServerConnection.key(conn) === partition.server)!)}
-                        </div>
-                      </Show>
-                      <DragDropProvider
-                        sensors={[
-                          PointerSensor.configure({
-                            activationConstraints: [new PointerActivationConstraints.Distance({ value: 4 })],
-                            preventActivation: (event) =>
-                              event.target instanceof Element &&
-                              !!event.target.closest(
-                                "[data-cozy-pin], [data-project-action], [data-cozy-project-body]",
-                              ),
-                          }),
-                        ]}
-                        modifiers={[RestrictToVerticalAxis]}
-                        plugins={(defaults) => [
-                          ...defaults.filter((plugin) => plugin !== Accessibility),
-                          Feedback.configure({ dropAnimation: null }),
-                        ]}
-                        onDragEnd={(event) => {
-                          const source = event.operation.source
+          <div role="group" aria-labelledby="sidebar-cozy-projects" class="flex shrink-0 flex-col gap-1 pb-1">
+            <CozySectionHeader
+              id="sidebar-cozy-projects"
+              label={language.t("sidebar.organize.projects")}
+              expanded={viewState.projects}
+              onToggle={() => setViewState("projects", (value: boolean) => !value)}
+              onAdd={addProject}
+              addLabel={language.t("home.project.add")}
+            />
+            <Show when={viewState.projects}>
+              <For each={view().projects}>
+                {(partition) => (
+                  <div class="flex min-w-0 flex-col">
+                    <Show when={servers.visible.length > 1}>
+                      <div class="flex h-6 items-center px-2 text-12-regular text-v2-text-text-muted">
+                        {servers.label(servers.list.find((conn) => ServerConnection.key(conn) === partition.server)!)}
+                      </div>
+                    </Show>
+                    <DragDropProvider
+                      sensors={[
+                        PointerSensor.configure({
+                          activationConstraints: [new PointerActivationConstraints.Distance({ value: 4 })],
+                          preventActivation: (event) =>
+                            event.target instanceof Element &&
+                            !!event.target.closest("[data-cozy-pin], [data-project-action], [data-cozy-project-body]"),
+                        }),
+                      ]}
+                      modifiers={[RestrictToVerticalAxis]}
+                      plugins={(defaults) => [
+                        ...defaults.filter((plugin) => plugin !== Accessibility),
+                        Feedback.configure({ dropAnimation: null }),
+                      ]}
+                      onDragEnd={(event) => {
+                        const source = event.operation.source
 
-                          if (event.canceled || !isSortable(source) || source.initialIndex === source.index) return
-                          reorderProjects(partition, source.initialIndex, source.index)
-                        }}
-                      >
-                        <For each={page(`project-group:${partition.server}`, partition.items).items}>
-                          {(project, index) => (
-                            <CozySortable id={project.key} index={index()}>
-                              {projectRow(project)}
-                            </CozySortable>
-                          )}
-                        </For>
-                      </DragDropProvider>
-                      <CozyPager
-                        less={page(`project-group:${partition.server}`, partition.items).less}
-                        more={page(`project-group:${partition.server}`, partition.items).more}
-                        onLess={() => less(`project-group:${partition.server}`)}
-                        onMore={() => more(`project-group:${partition.server}`, partition.items.length)}
-                      />
-                    </div>
-                  )}
-                </For>
-              </Show>
-            </div>
-          </Show>
+                        if (event.canceled || !isSortable(source) || source.initialIndex === source.index) return
+                        reorderProjects(partition, source.initialIndex, source.index)
+                      }}
+                    >
+                      <For each={page(`project-group:${partition.server}`, partition.items).items}>
+                        {(project, index) => (
+                          <CozySortable id={project.key} index={index()}>
+                            {projectRow(project)}
+                          </CozySortable>
+                        )}
+                      </For>
+                    </DragDropProvider>
+                    <CozyPager
+                      less={page(`project-group:${partition.server}`, partition.items).less}
+                      more={page(`project-group:${partition.server}`, partition.items).more}
+                      onLess={() => less(`project-group:${partition.server}`)}
+                      onMore={() => more(`project-group:${partition.server}`, partition.items.length)}
+                    />
+                  </div>
+                )}
+              </For>
+            </Show>
+          </div>
 
           <Show when={view().recent.length > 0}>
-            <div role="group" aria-labelledby="sidebar-cozy-recent" class="flex shrink-0 flex-col gap-2 pb-2.5">
+            <div role="group" aria-labelledby="sidebar-cozy-recent" class="flex shrink-0 flex-col gap-1 pb-1">
               <CozySectionHeader
                 id="sidebar-cozy-recent"
                 label={language.t("sidebar.inbox.section.recent")}

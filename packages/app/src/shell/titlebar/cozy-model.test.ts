@@ -5,7 +5,6 @@ import type { ServerConnection } from "@/runtime/server/registry"
 import type { InboxEntry, InboxStatus } from "./inbox-model"
 import {
   cozyCleanPins,
-  cozyDefaultProject,
   cozyMixPins,
   cozyPlacement,
   cozyProjectKey,
@@ -52,23 +51,6 @@ const info = (projectValue: Project): CozyProjectInfo => ({
 
 const identity = (value: InboxEntry) => value.key
 
-describe("cozyDefaultProject", () => {
-  test("uses the earliest project without version control and skips global", () => {
-    const projects = [
-      project("global", "C:/", 1, "none"),
-      project("later", "C:/later", 9, "none"),
-      project("earlier", "C:/earlier", 3, "none"),
-      project("git", "C:/git", 0, "git"),
-    ]
-
-    expect(cozyDefaultProject(projects)?.id).toBe("earlier")
-  })
-
-  test("returns undefined when no project qualifies", () => {
-    expect(cozyDefaultProject([project("git", "C:/git", 1, "git")])).toBeUndefined()
-  })
-})
-
 describe("cozyProjectOrder", () => {
   test("puts new projects first and keeps saved order", () => {
     const projects = [project("old", "C:/old", 1), project("new", "C:/new", 9), project("saved", "C:/saved", 4)]
@@ -83,11 +65,10 @@ describe("cozyPlacement", () => {
   const entries = [entry("d1", 10), entry("d2", 20), entry("o1", 15), entry("o2", 5)]
   const resolve = (value: InboxEntry) => (value.session.id.startsWith("d") ? info(defaultProject).key : info(other).key)
 
-  test("puts default sessions in recent and other sessions under their project", () => {
+  test("puts every unpinned session in both recent and its project, newest first", () => {
     const view = cozyPlacement({
       entries,
       projects,
-      defaultProjects: new Map([["sidecar" as ServerConnection.Key, info(defaultProject).key]]),
       resolveProject: resolve,
       sessionKey: identity,
       pinnedSessions: new Set(),
@@ -95,32 +76,38 @@ describe("cozyPlacement", () => {
       pinnedOrder: [],
     })
 
-    expect(view.recent.map((item) => item.entry.session.id)).toEqual(["d2", "d1"])
-    const otherItem = view.projects.flatMap((partition) => partition.items).find((item) => item.key === info(other).key)
-    expect(otherItem?.sessions.map((item) => item.entry.session.id)).toEqual(["o1", "o2"])
+    expect(view.recent.map((item) => item.entry.session.id)).toEqual(["d2", "o1", "d1", "o2"])
+    const byKey = new Map(view.projects.flatMap((partition) => partition.items).map((item) => [item.key, item]))
+    expect(byKey.get(info(defaultProject).key)?.sessions.map((item) => item.entry.session.id)).toEqual(["d2", "d1"])
+    expect(byKey.get(info(other).key)?.sessions.map((item) => item.entry.session.id)).toEqual(["o1", "o2"])
   })
 
-  test("a pinned project owns its sessions and a pinned session leaves its project", () => {
+  test("a pinned project owns its sessions and leaves Recent; a pinned session leaves its project", () => {
     const view = cozyPlacement({
       entries,
       projects,
-      defaultProjects: new Map([["sidecar" as ServerConnection.Key, info(defaultProject).key]]),
       resolveProject: resolve,
       sessionKey: identity,
       pinnedSessions: new Set(["sidecar\u0000o1"]),
       pinnedProjects: new Set([info(other).key]),
-      pinnedOrder: [{ kind: "session", key: "sidecar\u0000o1" }, { kind: "project", key: info(other).key }],
+      pinnedOrder: [
+        { kind: "session", key: "sidecar\u0000o1" },
+        { kind: "project", key: info(other).key },
+      ],
     })
 
     expect(view.pinned.map((item) => item.kind)).toEqual(["session", "project"])
-    expect(view.pinned[1]).toMatchObject({ kind: "project", project: { sessions: [{ entry: { session: { id: "o2" } } }] } })
+    expect(view.pinned[1]).toMatchObject({
+      kind: "project",
+      project: { sessions: [{ entry: { session: { id: "o2" } } }] },
+    })
+    expect(view.recent.map((item) => item.entry.session.id)).toEqual(["d2", "d1"])
   })
 
   test("unknown project IDs are not placed anywhere", () => {
     const view = cozyPlacement({
       entries: [entry("unknown", 1)],
       projects,
-      defaultProjects: new Map([["sidecar" as ServerConnection.Key, info(defaultProject).key]]),
       resolveProject: () => undefined,
       sessionKey: identity,
       pinnedSessions: new Set(),
@@ -139,11 +126,13 @@ describe("cozy pins", () => {
     const cleaned = cozyCleanPins({ ready: true, stored, sessions: ["sidecar\u0000b"] })
 
     expect(cleaned).toEqual(["p:sidecar\u0000C:/p", "s:sidecar\u0000b"])
-    expect(cozyMixPins({ stored: cleaned!, pinnedProjects: new Set(["sidecar\u0000C:/p"]), sessions: ["sidecar\u0000b", "sidecar\u0000c"] })).toEqual([
-      "p:sidecar\u0000C:/p",
-      "s:sidecar\u0000b",
-      "s:sidecar\u0000c",
-    ])
+    expect(
+      cozyMixPins({
+        stored: cleaned!,
+        pinnedProjects: new Set(["sidecar\u0000C:/p"]),
+        sessions: ["sidecar\u0000b", "sidecar\u0000c"],
+      }),
+    ).toEqual(["p:sidecar\u0000C:/p", "s:sidecar\u0000b", "s:sidecar\u0000c"])
   })
 
   test("does not clean before pins are ready", () => {
@@ -159,9 +148,29 @@ describe("cozy pins", () => {
 
 describe("pageSlice", () => {
   test("reports the 10/20 boundaries", () => {
-    expect(pageSlice(Array.from({ length: 10 }, (_, index) => index), 10)).toMatchObject({ less: false, more: false })
-    expect(pageSlice(Array.from({ length: 12 }, (_, index) => index), 10)).toMatchObject({ less: false, more: true })
-    expect(pageSlice(Array.from({ length: 12 }, (_, index) => index), 20)).toMatchObject({ less: true, more: false })
-    expect(pageSlice(Array.from({ length: 21 }, (_, index) => index), 10)).toMatchObject({ less: false, more: true })
+    expect(
+      pageSlice(
+        Array.from({ length: 10 }, (_, index) => index),
+        10,
+      ),
+    ).toMatchObject({ less: false, more: false })
+    expect(
+      pageSlice(
+        Array.from({ length: 12 }, (_, index) => index),
+        10,
+      ),
+    ).toMatchObject({ less: false, more: true })
+    expect(
+      pageSlice(
+        Array.from({ length: 12 }, (_, index) => index),
+        20,
+      ),
+    ).toMatchObject({ less: true, more: false })
+    expect(
+      pageSlice(
+        Array.from({ length: 21 }, (_, index) => index),
+        10,
+      ),
+    ).toMatchObject({ less: false, more: true })
   })
 })

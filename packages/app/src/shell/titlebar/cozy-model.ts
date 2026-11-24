@@ -22,9 +22,7 @@ export type CozyProject = CozyProjectInfo & {
   sessions: CozySession[]
 }
 
-export type CozyPinnedRef =
-  | { kind: "project"; key: CozyProjectKey }
-  | { kind: "session"; key: string }
+export type CozyPinnedRef = { kind: "project"; key: CozyProjectKey } | { kind: "session"; key: string }
 
 export type CozyItem =
   | { kind: "project"; project: CozyProject; count: number }
@@ -47,13 +45,6 @@ export function cozyProjectKey(server: ServerConnection.Key, worktree: string) {
   return `${server}\u0000${worktree}`
 }
 
-/** The earliest registered project without version control on each server. */
-export function cozyDefaultProject(projects: readonly Project[]) {
-  return projects
-    .filter((project) => project.vcs === undefined && project.id !== "global")
-    .toSorted((a, b) => a.time.created - b.time.created || a.worktree.localeCompare(b.worktree))[0]
-}
-
 /** New projects go on top; saved projects keep their relative order. */
 export function cozyProjectOrder(projects: readonly Project[], saved: readonly string[]) {
   const fresh = projects
@@ -73,11 +64,10 @@ function compareSessions(a: CozySession, b: CozySession) {
   return a.entry.session.id.localeCompare(b.entry.session.id)
 }
 
-/** Groups sessions into pinned, per-project, and default-project recent lists. */
+/** Groups sessions into pinned, per-project, and recent lists. */
 export function cozyPlacement(input: {
   entries: readonly InboxEntry[]
   projects: readonly CozyProjectInfo[]
-  defaultProjects: ReadonlyMap<ServerConnection.Key, string>
   resolveProject: (entry: InboxEntry) => string | undefined
   sessionKey: (entry: InboxEntry) => string
   pinnedSessions: ReadonlySet<string>
@@ -105,17 +95,10 @@ export function cozyPlacement(input: {
 
     if (!project) continue
 
-    if (input.pinnedProjects.has(projectKey)) {
-      project.sessions.push({ key, entry, pinned: false })
-      continue
-    }
-
-    if (input.defaultProjects.get(entry.server) === projectKey) {
-      recent.push({ key, entry, pinned: false })
-      continue
-    }
-
+    // A pinned project owns its sessions. Every other session shows in both Recent and its project.
     project.sessions.push({ key, entry, pinned: false })
+
+    if (!input.pinnedProjects.has(projectKey)) recent.push({ key, entry, pinned: false })
   }
 
   for (const project of projectsByKey.values()) {
@@ -145,9 +128,7 @@ export function cozyPlacement(input: {
     if (entry) ordered.push({ kind: "session", session: { key: ref.key, entry, pinned: true } })
   }
 
-  const orderedSessions = new Set(
-    ordered.flatMap((item) => (item.kind === "session" ? [item.session.key] : [])),
-  )
+  const orderedSessions = new Set(ordered.flatMap((item) => (item.kind === "session" ? [item.session.key] : [])))
 
   for (const entry of input.entries) {
     if (!input.pinnedSessions.has(input.sessionKey(entry))) continue
@@ -188,7 +169,11 @@ export function cozyMixPins(input: {
 }) {
   const projects = new Set(input.pinnedProjects)
   const sessions = new Set(input.sessions)
-  const kept = input.stored.filter((key) => (key.startsWith("p:") ? projects.has(key.slice(2)) : sessions.has(key.slice(2))))
+
+  const kept = input.stored.filter((key) =>
+    key.startsWith("p:") ? projects.has(key.slice(2)) : sessions.has(key.slice(2)),
+  )
+
   const result: string[] = []
   const usedSessions = new Set<string>()
 
@@ -219,11 +204,7 @@ export function cozyMixPins(input: {
 }
 
 /** Drops session slots that no longer have a pin. Project slots always stay. */
-export function cozyCleanPins(input: {
-  ready: boolean
-  stored: readonly string[]
-  sessions: readonly string[]
-}) {
+export function cozyCleanPins(input: { ready: boolean; stored: readonly string[]; sessions: readonly string[] }) {
   if (!input.ready) return undefined
   const sessions = new Set(input.sessions)
 
@@ -240,7 +221,11 @@ export function reorderCozyPins(order: readonly string[], visible: readonly stri
   return order.map((key) => (shown.has(key) ? nextVisible[index++] : key))
 }
 
-export function reorderProjectOrder(order: readonly string[], visible: readonly string[], nextVisible: readonly string[]) {
+export function reorderProjectOrder(
+  order: readonly string[],
+  visible: readonly string[],
+  nextVisible: readonly string[],
+) {
   if (nextVisible.length !== visible.length || new Set(nextVisible).size !== nextVisible.length) return [...order]
   const shown = new Set(visible)
 

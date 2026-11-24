@@ -45,7 +45,9 @@ export function CozySessionRow(props: {
   const info = () => (
     <div class="flex max-w-[320px] flex-col gap-1">
       <span class="font-medium">{title()}</span>
-      <span class="text-v2-text-text-muted">{displayName(project() ?? { worktree: entry().session.location.directory })}</span>
+      <span class="text-v2-text-text-muted">
+        {displayName(project() ?? { worktree: entry().session.location.directory })}
+      </span>
       <span dir="auto" class="font-mono text-12-regular text-v2-text-text-faint">
         {entry().session.location.directory}
       </span>
@@ -59,15 +61,20 @@ export function CozySessionRow(props: {
 
   return (
     <Menu.Context modal={false}>
-      <div class="group flex h-7 min-w-0 items-center rounded-[6px] hover:bg-v2-overlay-simple-overlay-hover data-[state=active]:bg-v2-overlay-simple-overlay-pressed" data-slot="sidebar-cozy-row" data-kind="session" data-state={props.inbox.selected(entry()) ? "active" : undefined}>
-        <Tooltip class="flex h-7 min-w-0 flex-1" value={info()} appearance="large">
+      <div
+        class="group/session flex h-7 min-w-0 items-center rounded-[6px] hover:bg-v2-overlay-simple-overlay-hover data-[state=active]:bg-v2-overlay-simple-overlay-pressed"
+        data-slot="sidebar-cozy-row"
+        data-kind="session"
+        data-state={props.inbox.selected(entry()) ? "active" : undefined}
+      >
+        <Tooltip placement="right" gutter={28} class="flex h-7 min-w-0 flex-1" value={info()} appearance="large">
           <Menu.Context.Trigger
             as="button"
             type="button"
             aria-current={props.inbox.selected(entry()) ? "page" : undefined}
             data-slot="sidebar-cozy-item"
             data-status={entry().status}
-            class="flex h-full w-full min-w-0 items-center gap-2 rounded-[6px] bg-transparent px-2 text-start text-[13px] leading-[var(--line-height-compact)] text-v2-text-text-base focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none"
+            class="flex h-full w-full min-w-0 items-center gap-1.5 rounded-[6px] bg-transparent px-1.5 text-start text-[13px] leading-[var(--line-height-compact)] text-v2-text-text-base focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none"
             onClick={() => props.inbox.open(entry())}
           >
             <span class="flex size-4 shrink-0 items-center justify-center">
@@ -115,13 +122,16 @@ export function CozySessionRow(props: {
             </Show>
           </Menu.Context.Trigger>
         </Tooltip>
-        <span data-cozy-pin class="flex w-6 shrink-0 justify-center">
+        <span
+          data-cozy-pin
+          class="pointer-events-none flex w-6 shrink-0 justify-center group-hover/session:pointer-events-auto focus-within:pointer-events-auto"
+        >
           <IconButton
             icon={<Icon name="pin" />}
             variant="ghost-muted"
             size="small"
             aria-label={language.t(props.session.pinned ? "sidebar.recent.unpin" : "sidebar.recent.pin")}
-            class="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            class="opacity-0 transition-opacity group-hover/session:opacity-100 focus-visible:opacity-100"
             onClick={(event) => {
               event.stopPropagation()
 

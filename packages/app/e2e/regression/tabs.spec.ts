@@ -2299,6 +2299,11 @@ test("the Cozy sidebar pins a session and a project and pages recent sessions", 
   await page.goto("/")
 
   const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const projectsHeader = sidebar.getByRole("button", { name: "Projects", exact: true })
+  await expect(sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="project"]')).toHaveCount(0)
+  await projectsHeader.hover()
+  await expect(sidebar.getByRole("button", { name: "Add project", exact: true })).toBeVisible()
+
   const rows = sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
   await expect(rows).toHaveCount(10)
   await sidebar.getByRole("button", { name: "Show more", exact: true }).click()
@@ -2313,8 +2318,14 @@ test("the Cozy sidebar pins a session and a project and pages recent sessions", 
     sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="session"]').filter({ hasText: "Cozy session 0" }),
   ).toHaveCount(1)
 
+  await projectsHeader.click()
+
   const project = sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="project"]')
   await project.hover()
+  await expect(project.getByRole("button", { name: "New session", exact: true })).toBeVisible()
+  await project.click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Pin", exact: true })).toBeVisible()
+  await page.keyboard.press("Escape")
   await project.getByRole("button", { name: "Pin", exact: true }).click()
   await expect(project.getByRole("button", { name: "Unpin", exact: true })).toHaveCount(1)
 
@@ -2331,11 +2342,12 @@ test("the Cozy sidebar pins a session and a project and pages recent sessions", 
     sidebar.locator('[data-cozy-project-body]').getByText("Cozy session 1", { exact: true }),
   ).toHaveCount(0)
 
+  await project.hover()
   await project.getByRole("button", { name: "Unpin", exact: true }).click()
   await expect(project.getByRole("button", { name: "Pin", exact: true })).toHaveCount(1)
 })
 
-test("the Cozy sidebar lists registered projects and expands their sessions", async ({ page }) => {
+test("the Cozy sidebar lists every project and puts each session in Recent and its project", async ({ page }) => {
   const defaultDirectory = "C:/OpenCode/CozyDefault"
   const otherDirectory = "C:/OpenCode/CozyOther"
 
@@ -2368,11 +2380,31 @@ test("the Cozy sidebar lists registered projects and expands their sessions", as
   await page.goto("/")
 
   const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const recent = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-recent"]')
+  await expect(recent.getByText("Default project session", { exact: true })).toBeVisible()
+  await expect(recent.getByText("Other project session", { exact: true })).toBeVisible()
+  await expect(sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="project"]')).toHaveCount(0)
+
+  await sidebar.getByRole("button", { name: "Projects", exact: true }).click()
+
+  const defaultProjectRow = sidebar
+    .locator('[data-slot="sidebar-cozy-row"][data-kind="project"]')
+    .filter({ hasText: "Cozy default" })
+
   const other = sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="project"]').filter({ hasText: "Cozy other" })
+
+  await expect(defaultProjectRow).toBeVisible()
   await expect(other).toBeVisible()
-  await expect(sidebar.getByText("Default project session", { exact: true })).toBeVisible()
+  await expect(sidebar.getByText("Default project session", { exact: true })).toHaveCount(1)
+  await expect(sidebar.getByText("Other project session", { exact: true })).toHaveCount(1)
+
+  await defaultProjectRow.getByRole("button", { name: "Cozy default", exact: true }).click()
   await other.getByRole("button", { name: "Cozy other", exact: true }).click()
-  await expect(sidebar.getByText("Other project session", { exact: true })).toBeVisible()
+
+  await expect(sidebar.getByText("Default project session", { exact: true })).toHaveCount(2)
+  await expect(sidebar.getByText("Other project session", { exact: true })).toHaveCount(2)
+  await expect(recent.getByText("Default project session", { exact: true })).toBeVisible()
+  await expect(recent.getByText("Other project session", { exact: true })).toBeVisible()
 })
 
 test("the Cozy sidebar drags a project and keeps its order after reload", async ({ page }) => {
@@ -2407,6 +2439,8 @@ test("the Cozy sidebar drags a project and keeps its order after reload", async 
   await page.goto("/")
 
   const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  await sidebar.getByRole("button", { name: "Projects", exact: true }).click()
+
   const projects = sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="project"]')
   const alpha = projects.filter({ hasText: "Cozy alpha" })
   const beta = projects.filter({ hasText: "Cozy beta" })
@@ -2425,10 +2459,11 @@ test("the Cozy sidebar drags a project and keeps its order after reload", async 
 
   await expect(projects.first()).toContainText("Cozy alpha")
   await page.reload()
+  await sidebar.getByRole("button", { name: "Projects", exact: true }).click()
   await expect(projects.first()).toContainText("Cozy alpha")
 })
 
-test("the Cozy sidebar shows the default project's sessions on one 28px row", async ({ page }) => {
+test("the Cozy sidebar shows recent sessions on one 28px row", async ({ page }) => {
   await mockWorkspace(page, {
     name: "Cozy",
     project: { vcs: undefined },
