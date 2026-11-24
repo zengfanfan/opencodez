@@ -1410,6 +1410,30 @@ const layer = Layer.effect(
       directory: AbsolutePath
       ref?: string
     }) {
+      // An unborn HEAD has no commit to check out, and a worktree needs one. Name the cause instead of git's
+      // "invalid reference" from the add below.
+      const resolveCommit = (ref: string) =>
+        command(input.repository.worktree, ["rev-parse", "-q", "--verify", `${ref}^{commit}`]).pipe(
+          Effect.map((result) => result.exitCode === 0),
+          Effect.catchTag("Git.CommandError", (cause) =>
+            Effect.fail(
+              new WorktreeError({
+                operation: "create",
+                directory: input.directory,
+                message: "Git could not resolve the worktree base",
+                cause,
+              }),
+            ),
+          ),
+        )
+      if (!(yield* resolveCommit(input.ref ?? "HEAD")) && !(yield* resolveCommit("HEAD")))
+        return yield* new WorktreeError({
+          operation: "create",
+          directory: input.directory,
+          message:
+            "This repository has no commits yet, so a worktree has nothing to check out. Create an initial commit, then try again.",
+        })
+
       yield* worktreeRun(
         "create",
         input.repository,

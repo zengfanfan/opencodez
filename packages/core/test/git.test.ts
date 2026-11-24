@@ -111,6 +111,24 @@ describe("Git worktrees", () => {
     }),
   )
 
+  it.live("refuses a worktree when the repository has no commits", () =>
+    Effect.gen(function* () {
+      const root = yield* tmpdirScoped()
+      yield* Effect.promise(() => initGit(root.path))
+      const git = yield* Git.Service
+      const repo = yield* git.repo.discover(AbsolutePath.make(root.path))
+      if (!repo) throw new Error("Repository not found")
+      const worktree = AbsolutePath.make(`${root.path}-unborn-worktree`)
+      const error = yield* git.worktree
+        .create({ repository: repo, directory: worktree, ref: yield* git.history.branch(repo) })
+        .pipe(Effect.flip)
+
+      expect(error).toMatchObject({ operation: "create" })
+      expect(error.message).toContain("no commits")
+      expect(yield* Effect.promise(() => fs.access(worktree).then(() => true, () => false))).toBe(false)
+    }),
+  )
+
   it.live("fingerprint changes with repository metadata, including from a linked worktree", () =>
     Effect.gen(function* () {
       const root = yield* tmpdirScoped()
