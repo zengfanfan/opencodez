@@ -692,8 +692,9 @@ export function createSessionTimelineRowRenderer(input: {
       if (!element) return
 
       const found = element.querySelector<HTMLElement>('[data-component="user-message"]')
+      const bubble = found?.querySelector<HTMLElement>('[data-slot="user-message-text"]')
 
-      setTarget(found ?? element)
+      setTarget(bubble ?? found ?? element)
 
       if (found) return
 
@@ -713,18 +714,24 @@ export function createSessionTimelineRowRenderer(input: {
 
       if (!scroller || !observed || !observed.isConnected || observed.offsetHeight === 0) return
 
+      // The jump button waits until at least one whole line of the prompt is visible, not just a sliver.
+      const minimum = parseFloat(getComputedStyle(observed).lineHeight) || 20
+      const threshold = Math.min(1, minimum / observed.offsetHeight)
+
       const observer = new IntersectionObserver(
-        ([entry]) => setPromptVisible(props.row.userMessageID, entry.isIntersecting),
-        { root: scroller, rootMargin: `-${header}px 0px 0px 0px`, threshold: 0 },
+        ([entry]) => setPromptVisible(props.row.userMessageID, entry.intersectionRect.height >= minimum),
+        { root: scroller, rootMargin: `-${header}px 0px 0px 0px`, threshold: [0, threshold] },
       )
 
       observer.observe(observed)
 
+      // A Frame fallback includes row padding; wait for the user-message target before writing the first value.
       if (observed !== frame()) {
         const box = scroller.getBoundingClientRect()
         const rect = observed.getBoundingClientRect()
+        const visible = Math.max(0, Math.min(rect.bottom, box.bottom) - Math.max(rect.top, box.top + header))
 
-        setPromptVisible(props.row.userMessageID, rect.bottom > box.top + header && rect.top < box.bottom)
+        setPromptVisible(props.row.userMessageID, visible >= minimum)
       }
 
       onCleanup(() => observer.disconnect())

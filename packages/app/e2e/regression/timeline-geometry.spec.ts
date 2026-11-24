@@ -1001,6 +1001,65 @@ test("does not show the jump button while the prompt is in view", async ({ page 
   await expect(reply.getByRole("button", { name: "Jump to prompt", exact: true })).toHaveCount(0)
 })
 
+test("keeps the jump button until a full prompt line is visible", async ({ page }) => {
+  const text = Array.from({ length: 40 }, (_, index) => `Reply line ${index + 1}`).join("\n\n")
+
+  await setupTimeline(page, {
+    viewport: { width: 1280, height: 800 },
+    sessionMessages: [
+      ...validateTimelineMessages([
+        userMessage([userText("A prompt worth returning to.", { id: "prt_jump_line_text" })], {
+          id: "msg_jump_line",
+          created: 1700000000000,
+        }),
+        assistantMessage([{ id: "prt_jump_line_reply", type: "text", text }], {
+          id: "msg_jump_line_reply",
+          parentID: "msg_jump_line",
+          created: 1700000001000,
+        }),
+      ]),
+      { id: "msg_jump_line_idle", type: "idle", outcome: "succeeded", time: { created: 1700000002000 } },
+    ],
+  })
+
+  const reply = page.locator('[data-component="text-part"]', { hasText: "Reply line 1" })
+  const jump = reply.getByRole("button", { name: "Jump to prompt", exact: true })
+  const user = page.locator('[data-timeline-row="UserMessage"][data-message-id="msg_jump_line"]')
+  const bubble = user.locator('[data-slot="user-message-text"]')
+
+  await expect(jump).toBeVisible()
+  await page.evaluate(() => {
+    const viewport = document.querySelector<HTMLElement>('[data-slot="session-timeline-scroll"] > [data-scrollable]')!
+
+    const prompt = document.querySelector<HTMLElement>(
+      '[data-timeline-row="UserMessage"][data-message-id="msg_jump_line"] [data-slot="user-message-text"]',
+    )!
+
+    const top = viewport.getBoundingClientRect().top
+    const bottom = prompt.getBoundingClientRect().bottom
+
+    viewport.scrollTop -= top + 2 - bottom
+  })
+
+  await expect
+    .poll(() =>
+      bubble.evaluate((element) => {
+        const viewport = element.closest(".scroll-view__viewport")
+
+        if (!(viewport instanceof HTMLElement)) throw new Error("The timeline viewport is missing")
+
+        return Math.round(element.getBoundingClientRect().bottom - viewport.getBoundingClientRect().top)
+      }),
+    )
+    .toBe(2)
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+  await expect(jump).toBeVisible()
+
+  await bubble.evaluate((element) => element.scrollIntoView({ block: "center" }))
+  await expect(jump).toHaveCount(0)
+})
+
+
 test("keeps the reply footer inside 390px with the jump button", async ({ page }) => {
   const text = Array.from({ length: 40 }, (_, index) => `Narrow line ${index + 1}`).join("\n\n")
 
