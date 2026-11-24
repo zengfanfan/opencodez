@@ -227,18 +227,28 @@ test("answers /btw in the side panel without admitting a prompt", async ({ page 
   await expect(panel.getByText("const delay = 2 ** attempt", { exact: true })).toBeVisible()
   await expect(panel.getByRole("button", { name: "Copy message", exact: true })).toHaveCount(1)
   await expect(panel.getByRole("button", { name: "Revert to here", exact: true })).toHaveCount(0)
-  await expect(panel.getByRole("button", { name: "Copy answer", exact: true })).toHaveCount(1)
-  await expect(panel.locator('[data-slot="text-part-meta"]')).toContainText(/\d+s/)
-  const feedback = page.getByRole("tooltip", { name: "Copied", exact: true })
+  await expect(panel.getByRole("button", { name: "Copy response", exact: true })).toHaveCount(1)
+  await expect(panel.locator('[data-slot="text-part-agent"] .sr-only')).toContainText(/\d+s/)
+  const answerTime = panel.locator('[data-slot="text-part-completed-at"]')
+  await expect(answerTime).toBeVisible()
   const btwUser = panel.locator('[data-component="user-message"]')
-  const btwCopy = btwUser.locator('[data-slot="user-message-copy-wrapper"]')
+  const userTime = btwUser.locator('[data-slot="user-message-time"]')
+  await btwUser.hover()
+  await userTime.hover()
+  await expect(page.getByRole("tooltip").filter({ hasText: /\d{4}/ })).toBeVisible()
+  await answerTime.hover()
+  await expect(page.getByRole("tooltip").filter({ hasText: /\d{4}/ })).toBeVisible()
+  await panel.getByRole("button", { name: "Copy response", exact: true }).hover()
+  await expect(page.getByRole("tooltip", { name: "Copy response", exact: true })).toBeVisible()
+  const feedback = page.getByRole("tooltip", { name: "Copied", exact: true })
+  const btwCopy = btwUser.locator('[data-slot="user-message-footer"]')
   await page.mouse.move(0, 0)
   await expect(btwCopy).toHaveCSS("opacity", "0")
   await expect(btwCopy).toHaveCSS("pointer-events", "none")
 
   for (const [component, label] of [
     ["user-message", "Copy message"],
-    ["text-part", "Copy answer"],
+    ["text-part", "Copy response"],
   ]) {
     const row = panel.locator(`[data-component="${component}"]`)
 
@@ -309,4 +319,31 @@ test("answers /btw in the side panel without admitting a prompt", async ({ page 
   )
   await expect(panel.getByText("exponential backoff", { exact: false })).toBeVisible()
   expect(ownerWarnings).toEqual([])
+})
+
+test("localizes the /btw footer controls", async ({ page }) => {
+  const { editor } = await openSession(page, {
+    name: "BtwLocale",
+    sessions: [{ id: "ses_btw_locale", title: "Locale side question" }],
+    seed: { locale: "zh" },
+    generate: async () => ({ text: "这是侧栏回答。" }),
+  })
+
+  await editor.fill("/btw 这是一个问题")
+  await editor.press("Enter")
+  const panel = page.locator('[data-slot="session-btw-panel"]')
+  await expect(panel.getByText("这是侧栏回答。", { exact: true })).toBeVisible()
+  await expect(panel.getByRole("button", { name: "复制消息", exact: true })).toHaveCount(1)
+  await expect(panel.getByRole("button", { name: "复制回复", exact: true })).toHaveCount(1)
+
+  const user = panel.locator('[data-component="user-message"]')
+  await user.hover()
+  await panel.locator('[data-slot="user-message-time"]').hover()
+  await expect(page.getByRole("tooltip").filter({ hasText: /\d{4}/ })).toBeVisible()
+
+  const answerTime = panel.locator('[data-slot="text-part-completed-at"]')
+  await answerTime.hover()
+  await expect(page.getByRole("tooltip").filter({ hasText: /\d{4}/ })).toBeVisible()
+  await panel.getByRole("button", { name: "复制回复", exact: true }).hover()
+  await expect(page.getByRole("tooltip", { name: "复制回复", exact: true })).toBeVisible()
 })

@@ -268,27 +268,6 @@
     }
   }
 
-  [data-slot="user-message-copy-wrapper"] {
-    height: 20px;
-    margin-top: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 8px;
-    width: 100%;
-
-    /* The /btw panel's meta line shows and hides at once on desktop. */
-    @media (hover: hover) {
-      opacity: 0;
-      pointer-events: none;
-    }
-
-    [data-component="tooltip-v2-trigger"] {
-      display: inline-flex;
-      width: fit-content;
-    }
-  }
-
   /* The user footer waits for hover anywhere in the message; touch keeps it visible. */
   [data-slot="user-message-footer"] {
     height: 20px;
@@ -322,69 +301,6 @@
       opacity: 1;
       pointer-events: auto;
     }
-  }
-
-  [data-slot="user-message-meta"] {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 4px;
-    user-select: none;
-    text-align: end;
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-  }
-
-  [data-slot="user-message-meta-wrap"],
-  [data-slot="user-message-meta-tail"] {
-    font-family: var(--v2-font-family-sans);
-    font-size: 12px;
-    font-weight: 440;
-    line-height: 18px;
-    letter-spacing: 0.05px;
-    color: var(--v2-text-text-faint);
-    cursor: default;
-  }
-
-  [data-slot="user-message-meta-wrap"] {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    overflow: hidden;
-    gap: 0;
-  }
-
-  [data-slot="user-message-meta-tail"] {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    user-select: none;
-    flex: 0 0 auto;
-    white-space: nowrap;
-    text-align: end;
-
-    @media (hover: hover) {
-      opacity: 0;
-      pointer-events: none;
-    }
-  }
-
-  /* A closed menu hands focus back without a ring, so only keyboard focus keeps the /btw footer shown. */
-  &:has([data-slot="user-message-body"]:hover) [data-slot="user-message-copy-wrapper"],
-  &:not(:has([data-slot="user-message-body"])):hover [data-slot="user-message-copy-wrapper"],
-  /* A footer holding its own buttons, as the /btw panel's does, stays reachable anywhere over the message. */
-  &:has([data-slot="user-message-copy-wrapper"] button):hover [data-slot="user-message-copy-wrapper"],
-  &:has(:focus-visible) [data-slot="user-message-copy-wrapper"],
-  [data-slot="user-message-copy-wrapper"]:has([data-expanded], [data-closing]),
-  &:has([data-slot="user-message-body"]:hover) [data-slot="user-message-meta-tail"],
-  &:has([data-slot="user-message-copy-wrapper"] button):hover [data-slot="user-message-meta-tail"],
-  &:has(:focus-visible) [data-slot="user-message-meta-tail"] {
-    opacity: 1;
-    pointer-events: auto;
   }
 
   .text-text-strong {

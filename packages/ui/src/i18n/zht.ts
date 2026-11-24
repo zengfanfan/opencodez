@@ -189,6 +189,7 @@ export const dict = {
   "ui.message.revertMessage": "重設至此點",
   "ui.message.copyResponse": "複製回覆",
   "ui.message.jumpToPrompt": "跳轉到發言",
+  "ui.message.agentDetails": "代理程式詳情",
   "ui.message.copied": "已複製！",
   "ui.message.interrupted": "已中斷",
   "ui.message.queued": "已加入佇列",

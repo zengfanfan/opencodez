@@ -189,6 +189,7 @@ export const dict = {
   "ui.message.revertMessage": "撤销此消息",
   "ui.message.copyResponse": "复制回复",
   "ui.message.jumpToPrompt": "跳转到发言",
+  "ui.message.agentDetails": "智能体详情",
   "ui.message.copied": "已复制！",
   "ui.message.interrupted": "已中断",
   "ui.message.queued": "排队中",
