@@ -119,6 +119,8 @@ export function createSessionTimelineRowRenderer(input: {
   promptHeaderHeight?: Accessor<number>
   /** Whether a user message row is in the virtualizer's rendered range. */
   isUserMessageMounted?: (messageID: string) => boolean
+  /** Whether this timeline belongs to a child session, whose bottom bar already names the agent and model. */
+  isChild?: Accessor<boolean>
   /** Scrolls the timeline to a user message. */
   revealMessage?: (messageID: string) => void
 }) {
@@ -568,6 +570,7 @@ export function createSessionTimelineRowRenderer(input: {
                 turnDurationMs={duration(row().userMessageID)}
                 turnTokensPerSecond={turnTokensPerSecond()}
                 turnCompletedAt={turnCompletedAt()}
+                hideAgentMeta={input.isChild?.()}
                 isPromptVisible={() => {
                   if (input.isUserMessageMounted && !input.isUserMessageMounted(row().userMessageID)) return false
 
@@ -1161,6 +1164,7 @@ export function createSessionTimelineRowRenderer(input: {
                       run={joined()}
                       latest={latestSent() === message().id}
                       runSnaps={runSnaps}
+                      showAgent={!input.isChild?.()}
                       fold={input.foldUserMessages?.()}
                       expanded={input.disclosure.value(`user-expanded:${message().id}`)}
                       onExpandedChange={(open) => input.disclosure.set(`user-expanded:${message().id}`, open)}

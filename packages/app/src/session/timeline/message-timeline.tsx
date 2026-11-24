@@ -332,6 +332,7 @@ function MessageTimelineView(
     scroller: virtualized.scrollElement,
     promptHeaderHeight: virtualized.promptHeaderHeight,
     isUserMessageMounted: virtualized.isUserMessageMounted,
+    isChild: () => !!parentID(),
     revealMessage: props.revealMessage,
   }
 

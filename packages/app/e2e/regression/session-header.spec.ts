@@ -874,6 +874,17 @@ test.describe("revert", () => {
     await expect(footer.getByRole("button", { name: "Copy message", exact: true })).toBeVisible()
     await expect(footer.getByRole("button", { name: /^(Revert to here|Undo)$/ })).toHaveCount(0)
     await expect(footer.getByRole("button", { name: "Fork from here", exact: true })).toHaveCount(0)
+    // The child session's bottom bar already names the agent and model, so the message footer omits its agent icon.
+    await expect(page.locator('[data-component="subagent-bar"]')).toBeVisible()
+    await expect(footer.locator('[data-slot="user-message-agent"]')).toHaveCount(0)
+
+    const reply = page.locator('[data-component="text-part"]', { hasText: "First reply" })
+    const agent = reply.locator('[data-slot="text-part-agent"]')
+    await agent.hover()
+    const details = page.getByRole("tooltip")
+    await expect(details).toHaveCount(1)
+    await expect(details).not.toContainText(/build/i)
+    await expect(details).not.toContainText(/test/i)
   })
 })
 

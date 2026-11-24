@@ -359,6 +359,8 @@ export function CurrentUserMessageDisplay(props: {
   latest?: boolean
   /** Whether run changes snap now, while a message arrives, rather than spring. Omitted, the corner always snaps. */
   runSnaps?: () => boolean
+  /** Whether the footer shows the agent icon. A child session's bottom bar already names the agent and model. */
+  showAgent?: boolean
   /** Folds a long message to its first lines with a Read more toggle. Omitted, the message always shows in full. */
   fold?: boolean
   /** Whether a folded message is open. The timeline owns it so it survives row recycling. */
@@ -679,7 +681,9 @@ export function CurrentUserMessageDisplay(props: {
           >
             <span data-slot="user-message-pending">{i18n.t("ui.message.pending")}</span>
           </Show>
-          <MessageAgentIcon slot="user-message-agent" agent={props.agent} details={agentDetails()} />
+          <Show when={props.showAgent !== false}>
+            <MessageAgentIcon slot="user-message-agent" agent={props.agent} details={agentDetails()} />
+          </Show>
           <Show when={pending() && props.actions?.pending}>
             <MessageIconButton
               icon="bullet-list"
@@ -1153,6 +1157,8 @@ export function AssistantTextContent(props: {
   turnTokensPerSecond?: number
   /** When the turn's last completed assistant step finished, shown at rest beside the Copy button. */
   turnCompletedAt?: number
+  /** A child session's bottom bar already names the agent and model, so its reply tooltip omits them. */
+  hideAgentMeta?: boolean
   /** Whether the prompt that started this turn is in the timeline viewport. */
   isPromptVisible?: () => boolean
   /** Scrolls the timeline back to the prompt that started this turn. */
@@ -1173,6 +1179,8 @@ export function AssistantTextContent(props: {
   const interrupted = () => isInterruptedError(props.message.error)
 
   const labels = createMemo<MetaItem[]>(() => {
+    if (props.hideAgentMeta) return []
+
     const agent = agentLabel(props.message.agent, data.agents)
 
     return [...(agent ? [{ label: agent }] : []), ...modelItems(data, props.message.model)]

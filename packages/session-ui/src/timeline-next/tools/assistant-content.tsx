@@ -21,6 +21,7 @@ export function AssistantContent(props: {
   turnDurationMs?: number | null
   turnTokensPerSecond?: number
   turnCompletedAt?: number
+  hideAgentMeta?: boolean
   isPromptVisible?: () => boolean
   onJumpToPrompt?: () => void
   sources?: TurnSources
@@ -43,6 +44,7 @@ export function AssistantContent(props: {
             turnDurationMs={props.turnDurationMs}
             turnTokensPerSecond={props.turnTokensPerSecond}
             turnCompletedAt={props.turnCompletedAt}
+            hideAgentMeta={props.hideAgentMeta}
             isPromptVisible={props.isPromptVisible}
             onJumpToPrompt={props.onJumpToPrompt}
             sources={props.sources}

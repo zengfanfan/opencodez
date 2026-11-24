@@ -32,6 +32,8 @@ export function SessionUserMessage(props: {
   /** The newest delivered prompt, whose revert undoes the last turn. */
   latest?: boolean
   runSnaps?: () => boolean
+  /** A child session's bottom bar already names the agent and model, so its message footer can omit the agent icon. */
+  showAgent?: boolean
   fold?: boolean
   expanded?: boolean
   onExpandedChange?: (expanded: boolean) => void
@@ -50,6 +52,7 @@ export function SessionUserMessage(props: {
       run={props.run}
       latest={props.latest}
       runSnaps={props.runSnaps}
+      showAgent={props.showAgent}
       fold={props.fold}
       expanded={props.expanded}
       onExpandedChange={props.onExpandedChange}
@@ -65,6 +68,7 @@ export function SessionAssistantContent(props: {
   turnDurationMs?: number | null
   turnTokensPerSecond?: number
   turnCompletedAt?: number
+  hideAgentMeta?: boolean
   isPromptVisible?: () => boolean
   onJumpToPrompt?: () => void
   sources?: TurnSources
@@ -87,6 +91,7 @@ export function SessionAssistantContent(props: {
             turnDurationMs={props.turnDurationMs}
             turnTokensPerSecond={props.turnTokensPerSecond}
             turnCompletedAt={props.turnCompletedAt}
+            hideAgentMeta={props.hideAgentMeta}
             isPromptVisible={props.isPromptVisible}
             onJumpToPrompt={props.onJumpToPrompt}
             sources={props.sources}
