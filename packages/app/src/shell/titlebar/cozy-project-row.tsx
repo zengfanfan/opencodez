@@ -58,7 +58,7 @@ export function CozyProjectRow(props: {
           class="hover-reveal pointer-events-none flex shrink-0 items-center gap-1 opacity-0 group-hover/project:pointer-events-auto group-hover/project:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
         >
           <IconButton
-            icon={<Icon name="pin" />}
+            icon={<Icon name={props.project.pinned ? "pin-off" : "pin"} />}
             variant="ghost-muted"
             size="small"
             aria-label={language.t(props.project.pinned ? "sidebar.recent.unpin" : "sidebar.recent.pin")}

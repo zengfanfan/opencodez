@@ -134,7 +134,7 @@ export function CozySessionRow(props: {
           class="pointer-events-none flex w-6 shrink-0 justify-center group-hover/session:pointer-events-auto focus-within:pointer-events-auto"
         >
           <IconButton
-            icon={<Icon name="pin" />}
+            icon={<Icon name={props.session.pinned ? "pin-off" : "pin"} />}
             variant="ghost-muted"
             size="small"
             aria-label={language.t(props.session.pinned ? "sidebar.recent.unpin" : "sidebar.recent.pin")}

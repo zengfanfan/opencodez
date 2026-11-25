@@ -129,7 +129,12 @@ const icons = {
   },
   pin: {
     viewBox: "0 0 16 16",
-    body: `<path d="M10.5 1.5L14.5 5.5L12.5 6.5L9.5 9.5L10 12.5L8.5 14L2 7.5L3.5 6L6.5 6.5L9.5 3.5L10.5 1.5Z" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/>`,
+    // A pushpin: cap, tapered head, and the needle through the base.
+    body: `<g transform="rotate(45 8 8)"><path d="M6 2H10M6 2V6.5L4.5 8.5H11.5L10 6.5V2M8 8.5V14.5" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/></g>`,
+  },
+  "pin-off": {
+    viewBox: "0 0 16 16",
+    body: `<g transform="rotate(45 8 8)"><path d="M6 2H10M6 2V6.5L4.5 8.5H11.5L10 6.5V2M8 8.5V14.5" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/></g><path d="M2.5 2.5L13.5 13.5" stroke-linecap="round" stroke="currentColor"/>`,
   },
   "file-tree-active": {
     viewBox: "0 0 20 20",
