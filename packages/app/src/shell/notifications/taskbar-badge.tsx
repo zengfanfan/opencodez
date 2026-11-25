@@ -143,7 +143,11 @@ export function TaskbarBadge() {
   return null
 }
 
-const SCALE_FACTORS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
+// Electron's TaskbarHost::SetOverlayIcon always rasterizes the overlay to 16x16: it takes the 1x
+// bitmap and downsamples anything larger, and Windows then scales that 16x16 icon up on displays
+// above 100% (20x20 at 125%). Larger or multi-resolution bitmaps therefore cannot look sharper,
+// so draw the single 16x16 bitmap directly and skip Electron's extra rescale.
+const BADGE_SIZE = 16
 
 function drawBadge(count: number) {
   const label = badgeLabel(count)
@@ -151,27 +155,23 @@ function drawBadge(count: number) {
   const background = styles.getPropertyValue("--v2-red-900").trim() || "#97252b"
   const family = styles.getPropertyValue("--font-family-sans").trim() || "sans-serif"
   const weight = styles.getPropertyValue("--font-weight-bold").trim() || "670"
+  const canvas = document.createElement("canvas")
+  canvas.width = BADGE_SIZE
+  canvas.height = BADGE_SIZE
+  const context = canvas.getContext("2d")
 
-  return SCALE_FACTORS.map((scaleFactor) => {
-    const size = Math.round(16 * scaleFactor)
-    const canvas = document.createElement("canvas")
-    canvas.width = size
-    canvas.height = size
-    const context = canvas.getContext("2d")
+  if (!context) return ""
 
-    if (!context) return { scaleFactor, dataUrl: "" }
+  context.fillStyle = background
+  context.beginPath()
+  context.arc(BADGE_SIZE / 2, BADGE_SIZE / 2, BADGE_SIZE / 2, 0, Math.PI * 2)
+  context.fill()
 
-    context.fillStyle = background
-    context.beginPath()
-    context.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2)
-    context.fill()
+  context.fillStyle = "#ffffff"
+  context.font = `${weight} ${Math.round(BADGE_SIZE * (label.length > 1 ? 0.5 : 0.6))}px ${family}`
+  context.textAlign = "center"
+  context.textBaseline = "middle"
+  context.fillText(label, BADGE_SIZE / 2, BADGE_SIZE / 2 + 1)
 
-    context.fillStyle = "#ffffff"
-    context.font = `${weight} ${Math.round(size * (label.length > 1 ? 0.5 : 0.6))}px ${family}`
-    context.textAlign = "center"
-    context.textBaseline = "middle"
-    context.fillText(label, size / 2, size / 2 + Math.max(1, Math.round(size * 0.03)))
-
-    return { scaleFactor, dataUrl: canvas.toDataURL("image/png") }
-  })
+  return canvas.toDataURL("image/png")
 }

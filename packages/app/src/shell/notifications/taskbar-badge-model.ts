@@ -1,5 +1,5 @@
 import type { OpenCodeEvent, SessionInfo } from "@opencode/client/promise"
-import type { Platform, TaskbarBadgeIcon, TaskbarBadgeUpdate } from "@/runtime/platform/platform"
+import type { Platform, TaskbarBadgeUpdate } from "@/runtime/platform/platform"
 
 /** The newest root sessions one taskbar index fetch discovers per server. */
 export const TASKBAR_SESSION_INDEX_LIMIT = 50
@@ -87,7 +87,7 @@ export async function sendTaskbarBadge(
   id: TaskbarBadgeId,
   count: number,
   description: string,
-  draw: (count: number) => readonly TaskbarBadgeIcon[],
+  draw: (count: number) => string,
   isCurrent: () => boolean = () => true,
   allocate: () => TaskbarBadgeId = () => id,
 ): Promise<void> {
@@ -95,10 +95,10 @@ export async function sendTaskbarBadge(
 
   if (!taskbarBadgeEnabled(platform) || !isCurrent() || !set) return
 
-  const send = (next: TaskbarBadgeId, payload: Pick<TaskbarBadgeUpdate, "count" | "icons" | "description">) =>
+  const send = (next: TaskbarBadgeId, payload: Pick<TaskbarBadgeUpdate, "count" | "icon" | "description">) =>
     new Promise<void>((resolve) => resolve(set({ ...next, ...payload })))
 
-  const clear = { count: 0, icons: [], description: "" }
+  const clear = { count: 0, icon: "", description: "" }
 
   if (count <= 0) {
     await send(id, clear).catch(() => undefined)
@@ -107,7 +107,7 @@ export async function sendTaskbarBadge(
   }
 
   try {
-    await send(id, { count, icons: draw(count), description })
+    await send(id, { count, icon: draw(count), description })
   } catch {
     if (!isCurrent()) return
     await send(allocate(), clear).catch(() => undefined)

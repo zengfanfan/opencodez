@@ -92,7 +92,7 @@ export const windowHandlers = WindowRpcs.toLayer(
 
           applyTaskbarBadge(
             win,
-            taskbarBadgeDecoded(request.icons, update.description, (dataUrl) =>
+            taskbarBadgeDecoded(request.icon, update.description, (dataUrl) =>
               nativeImage.createFromDataURL(dataUrl),
             ),
           )
