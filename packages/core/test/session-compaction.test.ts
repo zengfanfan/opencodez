@@ -563,6 +563,77 @@ it.effect("auto compaction estimates current content against the buffered prompt
       }),
     )
 
+    // A threshold sets the compaction point directly, as a share of the window.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) => editor.configure({ threshold: "75%" }))
+        expect(yield* due(input(74_999, contextLimited))).toBe(false)
+        expect(yield* due(input(75_000, contextLimited))).toBe(true)
+      }),
+    )
+
+    // A threshold accepts K/M token counts too.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) => editor.configure({ threshold: "95K" }))
+        expect(yield* due(input(94_999, contextLimited))).toBe(false)
+        expect(yield* due(input(95_000, contextLimited))).toBe(true)
+      }),
+    )
+
+    // A per-model threshold overrides the global buffer.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) =>
+          editor.configure({ buffer: "20%", models: { "test/summary-model": { threshold: "99%" } } }),
+        )
+        expect(yield* due(input(98_999, contextLimited))).toBe(false)
+        expect(yield* due(input(99_000, contextLimited))).toBe(true)
+      }),
+    )
+
+    // A per-model buffer overrides the global threshold.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) =>
+          editor.configure({ threshold: "80%", models: { "test/summary-model": { buffer: "5K" } } }),
+        )
+        expect(yield* due(input(94_999, contextLimited))).toBe(false)
+        expect(yield* due(input(95_000, contextLimited))).toBe(true)
+      }),
+    )
+
+    // An unlisted model falls back to the global threshold.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) =>
+          editor.configure({ threshold: "20%", models: { "test/other": { threshold: "5%" } } }),
+        )
+        expect(yield* due(input(19_999, contextLimited))).toBe(false)
+        expect(yield* due(input(20_000, contextLimited))).toBe(true)
+      }),
+    )
+
+    // A per-model threshold that cannot fit the window falls back to the global threshold.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) =>
+          editor.configure({ threshold: "80%", models: { "test/summary-model": { threshold: "200K" } } }),
+        )
+        expect(yield* due(input(79_999, contextLimited))).toBe(false)
+        expect(yield* due(input(80_000, contextLimited))).toBe(true)
+      }),
+    )
+
+    // A threshold wins over a buffer at the same level.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* compaction.transform((editor) => editor.configure({ buffer: "30%", threshold: "95%" }))
+        expect(yield* due(input(94_999, contextLimited))).toBe(false)
+        expect(yield* due(input(95_000, contextLimited))).toBe(true)
+      }),
+    )
+
     const assistant = input(89_000, contextLimited).messages[0]
     const tool = SessionMessage.AssistantTool.make({
       type: "tool",
@@ -1384,6 +1455,36 @@ it.effect("background summaries use a per-model buffer", () =>
 
     yield* compaction.transform((editor) =>
       editor.configure({ models: { "test/summary-model": { buffer: "50K" } } }),
+    )
+    yield* compaction.precompute(Effect.succeed(loaded(session, near)))
+    expect(yield* compaction.compact({ reason: "auto", context: loaded(session, due) })).toEqual({
+      status: "completed",
+    })
+
+    expect(requests).toHaveLength(1)
+    expect(JSON.stringify(requests[0].messages)).toContain("Second question")
+    expect(JSON.stringify(requests[0].messages)).not.toContain("Second answer")
+  }),
+)
+
+it.effect("background summaries use a per-model threshold", () =>
+  Effect.gen(function* () {
+    requests = []
+    beforeResponse = Effect.void
+    const compaction = yield* SessionCompaction.Service
+    const sessionID = Session.ID.make("ses_precompute_threshold")
+    const session = yield* insertSession(sessionID)
+    const near = [
+      textUser("First question"),
+      measured("First answer", 80_000),
+      textUser("Second question"),
+      measured("Second answer", 120_000),
+    ]
+    const due = [...near, textUser("Third question"), measured("Third answer", 180_000)]
+    yield* storeMessages(sessionID, due)
+
+    yield* compaction.transform((editor) =>
+      editor.configure({ models: { "test/summary-model": { threshold: "75%" } } }),
     )
     yield* compaction.precompute(Effect.succeed(loaded(session, near)))
     expect(yield* compaction.compact({ reason: "auto", context: loaded(session, due) })).toEqual({

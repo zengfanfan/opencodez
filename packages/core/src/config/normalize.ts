@@ -396,7 +396,23 @@ function normalizeCompaction(
     ? decodeEncoded(ConfigCompaction.Info.fields.buffer, input.compaction.buffer, ["compaction", "buffer"], diagnostics)
     : undefined
   const buffer = prefer(legacyBuffer, nativeBuffer, ["compaction", "buffer"], diagnostics)
+  const threshold = own(input.compaction, "threshold")
+    ? decodeEncoded(
+        ConfigCompaction.Info.fields.threshold,
+        input.compaction.threshold,
+        ["compaction", "threshold"],
+        diagnostics,
+      )
+    : undefined
   if (buffer !== undefined) result.buffer = buffer
+  if (threshold !== undefined) result.threshold = threshold
+  if (buffer !== undefined && threshold !== undefined) {
+    diagnostics.push({
+      kind: "conflict",
+      path: ["compaction", "buffer"],
+      message: "ignored because compaction.threshold is set",
+    })
+  }
   if (own(input.compaction, "models")) {
     const models = input.compaction.models
     if (!isRecord(models)) {
@@ -404,6 +420,14 @@ function normalizeCompaction(
     } else if (Object.keys(models).some((key) => !Schema.is(ConfigCompaction.ModelKey)(key))) {
       invalid(["compaction", "models"], diagnostics)
     } else {
+      Object.entries(models).forEach(([key, value]) => {
+        if (!isRecord(value) || !own(value, "buffer") || !own(value, "threshold")) return
+        diagnostics.push({
+          kind: "conflict",
+          path: ["compaction", "models", key, "buffer"],
+          message: "ignored because threshold is set",
+        })
+      })
       const decoded = decodeEncoded(
         ConfigCompaction.Info.fields.models,
         models,

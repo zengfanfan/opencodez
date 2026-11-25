@@ -202,6 +202,47 @@ describe("ConfigCompactionPlugin.Plugin", () => {
       yield* waitFor(due(bufferedInput))
     }),
   )
+
+  it.live("applies thresholds and per-model threshold overrides", () =>
+    Effect.gen(function* () {
+      const config = yield* Config.Test
+      const bus = yield* Bus.Service
+      const compaction = yield* SessionCompaction.Service
+      const due = (input: typeof nearInput) =>
+        compaction
+          .compact({ reason: "auto", context: input.context })
+          .pipe(Effect.map((outcome) => outcome.status !== "skipped"))
+      const waitFor = (condition: Effect.Effect<boolean>) =>
+        Effect.gen(function* () {
+          for (let attempt = 0; attempt < 200; attempt++) {
+            if (yield* condition) return
+            yield* Effect.sleep("10 millis")
+          }
+          yield* Effect.die(new Error("Timed out waiting for compaction config reload"))
+        })
+      const document = (info: ConfigCompaction.Info) =>
+        new Document({ type: "document", info: new Info({ compaction: info }) })
+
+      yield* config.setEntries([document(new ConfigCompaction.Info({ auto: true, threshold: "95%" }))])
+      yield* ConfigCompactionPlugin.Plugin.effect(host({ event: { subscribe: () => bus.subscribe(Event.Updated) } }))
+      expect(yield* due(input(94_999))).toBe(false)
+      expect(yield* due(input(95_000))).toBe(true)
+
+      yield* config.setEntries([
+        document(
+          new ConfigCompaction.Info({
+            auto: true,
+            buffer: 20_000,
+            models: { "test-provider/test-model": new ConfigCompaction.Override({ threshold: "99%" }) },
+          }),
+        ),
+      ])
+      yield* bus.publish(Event.Updated, {})
+      yield* waitFor(due(input(99_000)))
+      expect(yield* due(input(98_999))).toBe(false)
+      expect(yield* due(input(99_000))).toBe(true)
+    }),
+  )
 })
 
 const session = Session.Info.make({

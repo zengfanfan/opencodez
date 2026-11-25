@@ -42,12 +42,16 @@ export type Settings = {
   auto: boolean
   /** Room kept free below the model's limits: a share such as "20%", a token count, or a K/M string such as "128K". Unset keeps 15%, and at least 16k, free. */
   buffer?: number | string
+  /** The share or token count of the window used before automatic compaction starts, such as "85%" or "700K". Takes precedence over `buffer`. */
+  threshold?: number | string
   /** Tokens of recent conversation kept verbatim beside the summary. */
   keep: number
   /** Summarize in the background as the context nears the threshold, so automatic compaction can swap it in. */
   background: boolean
-  /** Per-model buffer overrides keyed by `provider/model`; unset models use `buffer`. */
-  models?: Readonly<Record<string, Readonly<{ buffer?: number | string }>>>
+  /** Per-model buffer or threshold overrides keyed by `provider/model`; unset models use the top-level values. */
+  models?: Readonly<
+    Record<string, Readonly<{ buffer?: number | string; threshold?: number | string }>>
+  >
 }
 
 export type Editor = {
@@ -289,24 +293,24 @@ export const layer = Layer.effect(
             })
             .pipe(Effect.orElseSucceed(() => undefined)))) ??
         context.model
-      const ceiling = calculateCeiling(model.limit, buffer)
+      const ceiling = calculateCeiling(model.limit, { buffer })
       // An unknown window never triggers auto compaction, but the compaction request still needs a size to aim for.
       const cap = Number.isFinite(ceiling)
         ? ceiling
-        : calculateCeiling({ ...model.limit, context: UNKNOWN_WINDOW }, buffer)
+        : calculateCeiling({ ...model.limit, context: UNKNOWN_WINDOW }, { buffer })
       return { context: model === context.model ? context : { ...context, model }, cap }
     })
 
     const compact = Effect.fn("SessionCompaction.compact")(function* (trigger: Trigger): Effect.fn.Return<Outcome> {
       const settings = state.get()
       const context = trigger.context
-      const buffers = buffersFor(settings, context.model.ref)
+      const limits = limitsFor(settings, context.model.ref)
 
       // Only the user compacts when automatic compaction is off, overflow included.
       if (trigger.reason !== "manual" && !settings.auto) return { status: "skipped" }
       if (
         trigger.reason === "auto" &&
-        !due(context, calculateCeiling(context.model.limit, ...buffers), trigger.estimate)
+        !due(context, calculateCeiling(context.model.limit, ...limits), trigger.estimate)
       )
         return { status: "skipped" }
       const held = precomputed.get(context.session.id)
@@ -358,7 +362,7 @@ export const layer = Layer.effect(
       if (context.model.compaction?.type === "native") return
       // An unknown window has an infinite ceiling, which this never reaches. Past the ceiling it still starts: at the
       // end of a turn, the next prompt then swaps it in instead of waiting for a summary.
-      const ceiling = calculateCeiling(context.model.limit, ...buffersFor(settings, context.model.ref))
+      const ceiling = calculateCeiling(context.model.limit, ...limitsFor(settings, context.model.ref))
       const estimate = given ?? estimatePrompt(context)
       const first = context.messages.find((message) => hasMeasuredPrompt(message, context.model.ref))
       const cycleStart = first?.type === "assistant" && first.tokens ? promptTokens(first.tokens) : 0
@@ -1146,37 +1150,51 @@ export const estimatePrompt = (context: SessionContext.Loaded): Estimate => {
   }
 }
 
-/** Buffer candidates in fallback order: the model's own value, then the global one. */
-const buffersFor = (settings: Settings, ref: SessionContext.Loaded["model"]["ref"]) =>
-  [settings.models?.[`${ref.providerID}/${ref.id}`]?.buffer, settings.buffer] as const
+/** One config level's compaction limits; a threshold sets the ceiling and wins over a buffer. */
+type Limit = Readonly<{ buffer?: Settings["buffer"]; threshold?: Settings["threshold"] }>
 
-/** Tokens a buffer keeps free, or undefined when none is set. Non-finite values are unusable and filtered below. */
-const bufferTokens = (buffer: Settings["buffer"], window: number) => {
-  if (buffer === undefined) return undefined
-  if (typeof buffer === "number") return buffer
-  if (buffer.endsWith("%")) return Math.round((window * Number.parseFloat(buffer)) / 100)
-  if (/^\d+(?:\.\d+)?[KkMm]$/u.test(buffer))
+/** Limits in fallback order: the model's own value, then the global one. */
+const limitsFor = (settings: Settings, ref: SessionContext.Loaded["model"]["ref"]): readonly Limit[] => {
+  const model = settings.models?.[`${ref.providerID}/${ref.id}`]
+  const top = { buffer: settings.buffer, threshold: settings.threshold }
+  return model ? [model, top] : [top]
+}
+
+/** Tokens a buffer or threshold amount represents, or undefined when none is set. Non-finite values are skipped below. */
+const amountTokens = (amount: Settings["buffer"], window: number) => {
+  if (amount === undefined) return undefined
+  if (typeof amount === "number") return amount
+  if (amount.endsWith("%")) return Math.round((window * Number.parseFloat(amount)) / 100)
+  if (/^\d+(?:\.\d+)?[KkMm]$/u.test(amount))
     return Math.round(
-      Number.parseFloat(buffer) * (buffer.toLowerCase().endsWith("m") ? 1_000_000 : 1_000),
+      Number.parseFloat(amount) * (amount.toLowerCase().endsWith("m") ? 1_000_000 : 1_000),
     )
   // Legacy: an unsuffixed string from a programmatic configure was treated as a percentage.
-  return Math.round((window * Number.parseFloat(buffer)) / 100)
+  return Math.round((window * Number.parseFloat(amount)) / 100)
 }
 
 /**
- * The largest request the model takes while leaving room for its reply. Uses the first buffer candidate that leaves
- * room in the window, then `RESERVE_SHARE` of the window, or `RESERVE_MIN` when that is more. A summary request that
- * must be shrunk is aimed at the same size. A window too small to give up `RESERVE_MIN` keeps `RESERVE_SHARE`.
+ * The largest request the model takes while leaving room for its reply. Uses the first limit that leaves room in the
+ * window: a threshold is the ceiling itself, while a buffer keeps that many tokens free. Then `RESERVE_SHARE` of the
+ * window, or `RESERVE_MIN` when that is more. A summary request that must be shrunk is aimed at the same size. A window
+ * too small to give up `RESERVE_MIN` keeps `RESERVE_SHARE`.
  */
-const calculateCeiling = (limit: SessionContext.Loaded["model"]["limit"], ...buffers: Settings["buffer"][]) => {
+const calculateCeiling = (limit: SessionContext.Loaded["model"]["limit"], ...limits: Limit[]) => {
   // With no window at all, only a provider rejection can limit the request.
   const window = inputWindow(limit)
   if (window <= 0) return Number.POSITIVE_INFINITY
-  const tokens = buffers
-    .map((buffer) => bufferTokens(buffer, window))
-    .find((tokens) => tokens !== undefined && tokens < window)
+  const ceiling = limits
+    .map((candidate) => {
+      if (candidate.threshold !== undefined) {
+        const tokens = amountTokens(candidate.threshold, window)
+        return tokens !== undefined && tokens > 0 && tokens < window ? tokens : undefined
+      }
+      const tokens = amountTokens(candidate.buffer, window)
+      return tokens !== undefined && tokens >= 0 && tokens < window ? window - tokens : undefined
+    })
+    .find((ceiling) => ceiling !== undefined)
   // Candidates that leave no room, such as one set for a larger model, are skipped.
-  if (tokens !== undefined) return window - tokens
+  if (ceiling !== undefined) return ceiling
   return window - Math.max(Math.floor(window * RESERVE_SHARE), window >= 2 * RESERVE_MIN ? RESERVE_MIN : 0)
 }
 

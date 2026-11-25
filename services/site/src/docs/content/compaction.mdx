@@ -87,6 +87,7 @@ Add `compaction` to any [OpenCode configuration file](/config):
 | `background` | `true` | Write the summary ahead of time so automatic compaction doesn't wait for it. See [Background compaction](#background-compaction). |
 | `keep.tokens` | `15000` | Approximate recent conversation kept beside the summary. Larger values preserve more detail but leave less room for new work. |
 | `buffer` | `"15%"`, at least 16k | Share of the model's context window kept free. Automatic compaction starts once the conversation reaches the rest. Larger values compact earlier. |
+| `threshold` | none | Share or token count of the window used when automatic compaction starts. The forward form of `buffer`; wins when both are set. |
 
 `keep.tokens` accepts a non-negative integer.
 
@@ -103,6 +104,7 @@ Add `compaction` to any [OpenCode configuration file](/config):
 - Accepts `"1%"` to `"99%"`, including decimals such as `"12.5%"`.
 - A token count such as `20000`, `"128K"`, or `"1.5M"` also works. K and M are decimal, so `1K` is 1000 tokens and `1M` is 1,000,000. The same count is a large share of a small window and a small share of a large one.
 - A token count at least as large as the model's window is ignored. A per-model value then tries the global value, and the default applies only when both are unusable.
+- `threshold` is the forward form of the same setting, for when it is easier to state where compaction starts.
 
 Set a value for one model with `compaction.models`, keyed by `provider/model`:
 
@@ -112,16 +114,37 @@ Set a value for one model with `compaction.models`, keyed by `provider/model`:
     "buffer": "15%",
     "models": {
       "openai/gpt-6.1-sol": { "buffer": "100K" },
-      "anthropic/claude-sonnet-5-5": { "buffer": "20%" },
+      "anthropic/claude-sonnet-5-5": { "threshold": "80%" },
     },
   },
 }
 ```
 
-- Unlisted models use the top-level `buffer`.
+- Unlisted models use the top-level values.
 - Model IDs may contain `/`, such as `openrouter/anthropic/claude-sonnet-5-5`. Keys are case-sensitive. A variant suffix such as `#thinking` is not supported, and the model value covers its variants.
 - A later config file replaces the whole `models` map, and an explicit `"models": {}` clears earlier overrides. Keep every per-model override in one file.
-- The value only moves the trigger. The summary request keeps using the top-level `buffer` and the summary model's window, so a custom `agents.compaction.model` is unaffected by per-model values.
+- The value only moves the trigger. The summary request keeps using the top-level `buffer` when set, or the built-in reserve; a threshold never resizes it. A custom `agents.compaction.model` is unaffected by per-model values.
+
+### Threshold
+
+`threshold` states where automatic compaction starts instead of how much room to keep. It is the forward form of `buffer`.
+
+```jsonc title="opencode.jsonc"
+{
+  "compaction": {
+    "threshold": "85%",
+    "models": {
+      "openai/gpt-6.1-sol": { "threshold": "700K" },
+    },
+  },
+}
+```
+
+- `buffer: "15%"` and `threshold: "85%"` are equivalent for the same model window.
+- Accepts `"1%"` to `"99%"`, including decimals, plus integers and K/M counts such as `"700K"` or `"1.5M"`.
+- A threshold at least as large as the window is ignored. Per-model values fall back to the global value, then to the default.
+- If a level sets both `buffer` and `threshold`, `threshold` wins and a conflict diagnostic is reported.
+- The built-in default still keeps 15%, and at least 16k, free. An explicit threshold does not add that 16k minimum.
 
 ## Model
 

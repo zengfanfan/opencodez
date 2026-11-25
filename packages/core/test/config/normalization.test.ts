@@ -553,9 +553,38 @@ describe("ConfigNormalize", () => {
       ["invalid", ["compaction", "buffer"]],
     ])
 
+    expect(normalized({ compaction: { threshold: "85%" } }).encoded.compaction).toEqual({ threshold: "85%" })
+    for (const threshold of ["0%", "100%", "150%", 0, "abc"]) {
+      const result = normalized({ compaction: { threshold } })
+      expect(result.encoded.compaction).toBeUndefined()
+      expect(result.diagnostics.map((item) => [item.kind, item.path])).toEqual([
+        ["invalid", ["compaction", "threshold"]],
+      ])
+    }
+    for (const threshold of ["700K", "1.5M"]) {
+      expect(normalized({ compaction: { threshold } }).encoded.compaction).toEqual({ threshold })
+    }
+    const both = normalized({ compaction: { buffer: "20%", threshold: "85%" } })
+    expect(both.encoded.compaction).toEqual({ buffer: "20%", threshold: "85%" })
+    expect(both.diagnostics.map((item) => [item.kind, item.path])).toEqual([
+      ["conflict", ["compaction", "buffer"]],
+    ])
+
     expect(
       normalized({ compaction: { models: { "test-provider/test-model": { buffer: "1.5M" } } } }).encoded.compaction,
     ).toEqual({ models: { "test-provider/test-model": { buffer: "1.5M" } } })
+    expect(
+      normalized({ compaction: { models: { "test-provider/test-model": { threshold: "90%" } } } }).encoded.compaction,
+    ).toEqual({ models: { "test-provider/test-model": { threshold: "90%" } } })
+    const bothModel = normalized({
+      compaction: { models: { "test-provider/test-model": { buffer: "10K", threshold: "90%" } } },
+    })
+    expect(bothModel.encoded.compaction).toEqual({
+      models: { "test-provider/test-model": { buffer: "10K", threshold: "90%" } },
+    })
+    expect(bothModel.diagnostics.map((item) => [item.kind, item.path])).toEqual([
+      ["conflict", ["compaction", "models", "test-provider/test-model", "buffer"]],
+    ])
     expect(normalized({ compaction: { models: { "p/a/b": { buffer: "20%" } } } }).encoded.compaction).toEqual({
       models: { "p/a/b": { buffer: "20%" } },
     })

@@ -19,6 +19,7 @@ export const Plugin = define({
           ...(entry.info.compaction.auto === undefined ? {} : { auto: entry.info.compaction.auto }),
           ...(entry.info.compaction.background === undefined ? {} : { background: entry.info.compaction.background }),
           ...(entry.info.compaction.buffer === undefined ? {} : { buffer: entry.info.compaction.buffer }),
+          ...(entry.info.compaction.threshold === undefined ? {} : { threshold: entry.info.compaction.threshold }),
           ...(entry.info.compaction.models === undefined ? {} : { models: entry.info.compaction.models }),
           ...(entry.info.compaction.keep?.tokens === undefined ? {} : { keep: entry.info.compaction.keep.tokens }),
         })

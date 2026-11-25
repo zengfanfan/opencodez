@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
+import { generate } from "../script/config-schema.js"
 import { Config } from "../src/config.js"
 import { ConfigAgent } from "../src/config/agent.js"
 import { ConfigFlag } from "../src/config/flag.js"
@@ -191,4 +192,18 @@ describe("Config.Entry", () => {
 test("wildcard switches are reserved flag names", () => {
   expect(ConfigFlag.registry).not.toHaveProperty("all_flags")
   expect(ConfigFlag.registry).not.toHaveProperty(ConfigFlag.wildcard)
+})
+
+test("generated schema describes nested compaction fields", async () => {
+  const generated = await generate()
+  const compaction = generated.properties?.compaction?.properties
+  if (!compaction) throw new Error("expected a compaction schema")
+  const described = (key: string) => {
+    const schema = compaction[key] as { description?: unknown; $ref?: string } | undefined
+    if (typeof schema?.description === "string") return true
+    if (!schema?.$ref?.startsWith("#/$defs/")) return false
+    const target = generated.$defs[schema.$ref.slice("#/$defs/".length)]
+    return typeof target?.description === "string"
+  }
+  for (const key of ["background", "buffer", "models", "threshold"]) expect(described(key)).toBe(true)
 })
