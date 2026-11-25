@@ -47,6 +47,9 @@ export async function mockWorkspace(page: Page, input: WorkspaceInput) {
     sessions,
   })
 
+  // The product now starts in Cozy. The tab-strip specs assume top tabs, so pin that layout unless a test seeds one.
+  await seed(page, { settings: { appearance: { tabLayout: "horizontal" } } })
+
   await seed(page, {
     usedProjects: { local: [projectID] },
     tabs: sessions.map((item) => item.id),

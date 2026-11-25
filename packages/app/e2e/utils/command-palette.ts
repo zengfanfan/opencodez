@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test"
-import { NO_PROVIDER, project, sessionHref } from "./app"
+import { NO_PROVIDER, project, seed, sessionHref } from "./app"
 import { mockOpenCodeServer } from "./mock-server"
 import { APP_READY_TIMEOUT } from "./waits"
 
@@ -46,6 +46,8 @@ export async function openPaletteWorkspace(page: Page, home = false, sessions = 
     findFiles: () => [],
   })
 
+  // The product now starts in Cozy; these palette tests assert the top tab strip.
+  await seed(page, { settings: { appearance: { tabLayout: "horizontal" } } })
   await page.goto(home ? "/" : sessionHref(paletteSession.id))
 
   if (home) {

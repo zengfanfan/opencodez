@@ -1229,7 +1229,7 @@ export const dict = {
   "sidebar.inbox.elapsed.days.one": "{{count}}天",
   "sidebar.inbox.elapsed.days.other": "{{count}}天",
   "sidebar.inbox.time.now": "刚刚",
-  "sidebar.recent.pinned": "已置顶",
+  "sidebar.recent.pinned": "置顶",
   "sidebar.recent.section.recent": "最近",
   "sidebar.recent.empty": "没有最近会话",
   "sidebar.recent.pin": "置顶",

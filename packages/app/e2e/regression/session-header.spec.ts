@@ -9,6 +9,11 @@ import { mockRemoteServer, mockWorkspace, openSession } from "../utils/workspace
 
 const tabs = (page: Page) => page.locator('[data-slot="titlebar-tabs"] a')
 
+// The product now starts in Cozy; this suite asserts the top tab strip.
+test.beforeEach(async ({ page }) => {
+  await seed(page, { settings: { appearance: { tabLayout: "horizontal" } } })
+})
+
 for (const direction of ["ltr", "rtl"] as const) {
   test(`session header groups controls and exposes session details in ${direction}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -751,9 +756,7 @@ test.describe("revert", () => {
     const { session, editor } = await openSession(page, { ...workspace, onRevertStage: (input) => staged.push(input) })
     const prompt = page.getByRole("textbox", { name: "Prompt" })
 
-    const undoToast = page
-      .locator('[data-testid^="toast-v2-"]')
-      .getByRole("button", { name: "Undo", exact: true })
+    const undoToast = page.locator('[data-testid^="toast-v2-"]').getByRole("button", { name: "Undo", exact: true })
 
     const slash = async (command: string) => {
       await editor.press("ControlOrMeta+a")

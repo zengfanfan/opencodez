@@ -1225,7 +1225,7 @@ export const dict = {
   "sidebar.inbox.elapsed.days.one": "{{count}} 天",
   "sidebar.inbox.elapsed.days.other": "{{count}} 天",
   "sidebar.inbox.time.now": "現在",
-  "sidebar.recent.pinned": "已釘選",
+  "sidebar.recent.pinned": "釘選",
   "sidebar.recent.section.recent": "最近",
   "sidebar.recent.empty": "沒有最近的工作階段",
   "sidebar.recent.pin": "釘選",

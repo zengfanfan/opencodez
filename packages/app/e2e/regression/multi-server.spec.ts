@@ -79,7 +79,12 @@ async function setup(
     [REMOTE_SERVER]: { ...config(REMOTE_SERVER, "Server B", directoryB, [sessionB]), ...input.b },
   })
 
-  await seed(page, { servers: [REMOTE_SERVER], tabs: input.tabs })
+  // The product now starts in Cozy; these tests assert the top tab strip.
+  await seed(page, {
+    servers: [REMOTE_SERVER],
+    tabs: input.tabs,
+    settings: { appearance: { tabLayout: "horizontal" } },
+  })
 
   const listed = (origin: string, directory: string) =>
     expect

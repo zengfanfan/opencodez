@@ -16,6 +16,7 @@ import { sessionTabTitle } from "./tab-title"
 export function CozySessionRow(props: {
   session: CozySession
   inbox: SessionInbox
+  showAvatar?: boolean
   onPin: () => void
   onUnpin: () => void
 }) {
@@ -67,7 +68,7 @@ export function CozySessionRow(props: {
         data-kind="session"
         data-state={props.inbox.selected(entry()) ? "active" : undefined}
       >
-        <Tooltip placement="right" gutter={28} class="flex h-7 min-w-0 flex-1" value={info()} appearance="large">
+        <Tooltip placement="right-start" gutter={28} class="flex h-7 min-w-0 flex-1" value={info()} appearance="large">
           <Menu.Context.Trigger
             as="button"
             type="button"
@@ -77,9 +78,15 @@ export function CozySessionRow(props: {
             class="flex h-full w-full min-w-0 items-center gap-1.5 rounded-[6px] bg-transparent px-1.5 text-start text-[13px] leading-[var(--line-height-compact)] text-v2-text-text-base focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none"
             onClick={() => props.inbox.open(entry())}
           >
-            <span class="flex size-4 shrink-0 items-center justify-center">
-              <SessionTabAvatarView project={project()} directory={entry().session.location.directory} unread={false} />
-            </span>
+            <Show when={props.showAvatar ?? true}>
+              <span class="flex size-4 shrink-0 items-center justify-center">
+                <SessionTabAvatarView
+                  project={project()}
+                  directory={entry().session.location.directory}
+                  unread={false}
+                />
+              </span>
+            </Show>
             <span dir="auto" class="min-w-0 flex-1 truncate font-medium tracking-[-0.04px]">
               {title()}
             </span>

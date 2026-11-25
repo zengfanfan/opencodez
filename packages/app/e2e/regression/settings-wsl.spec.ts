@@ -1,10 +1,15 @@
 import { base64Encode } from "@opencode/util/encode"
 import { expect, test, type Locator } from "@playwright/test"
-import { NO_PROVIDER, REMOTE_SERVER, SERVER, holdRoute, project, provider, session } from "../utils/app"
+import { NO_PROVIDER, REMOTE_SERVER, SERVER, holdRoute, project, provider, seed, session } from "../utils/app"
 import { mockOpenCodeServer, mockServers } from "../utils/mock-server"
 import { expectSessionTitle } from "../utils/waits"
 
 test.use({ viewport: { width: 1280, height: 900 } })
+
+// The product now starts in Cozy; these fixture pages assert the top tab strip.
+test.beforeEach(async ({ page }) => {
+  await seed(page, { settings: { appearance: { tabLayout: "horizontal" } } })
+})
 
 test("WSL distribution radios stay inset and aligned in both add-server lists", async ({ page }) => {
   await mockOpenCodeServer(page, {
