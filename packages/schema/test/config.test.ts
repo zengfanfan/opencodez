@@ -198,12 +198,17 @@ test("generated schema describes nested compaction fields", async () => {
   const generated = await generate()
   const compaction = generated.properties?.compaction?.properties
   if (!compaction) throw new Error("expected a compaction schema")
-  const described = (key: string) => {
-    const schema = compaction[key] as { description?: unknown; $ref?: string } | undefined
-    if (typeof schema?.description === "string") return true
-    if (!schema?.$ref?.startsWith("#/$defs/")) return false
-    const target = generated.$defs[schema.$ref.slice("#/$defs/".length)]
+  const described = (schema: unknown) => {
+    if (typeof schema !== "object" || schema === null) return false
+    const value = schema as { description?: unknown; $ref?: string }
+    if (typeof value.description === "string") return true
+    if (!value.$ref?.startsWith("#/$defs/")) return false
+    const target = generated.$defs[value.$ref.slice("#/$defs/".length)] as { description?: unknown } | undefined
     return typeof target?.description === "string"
   }
-  for (const key of ["background", "buffer", "models", "threshold"]) expect(described(key)).toBe(true)
+  for (const key of ["background", "buffer", "models", "threshold"]) expect(described(compaction[key])).toBe(true)
+  const override = generated.$defs["Config.Compaction.OverrideEncoded"] as
+    | { properties?: Record<string, unknown> }
+    | undefined
+  for (const key of ["buffer", "threshold"]) expect(described(override?.properties?.[key])).toBe(true)
 })
