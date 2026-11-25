@@ -383,7 +383,7 @@ export function SidebarCozy() {
         <div
           data-slot="sidebar-cozy-scroll"
           data-scrollable
-          class="flex min-h-0 flex-1 flex-col gap-[3px] overflow-y-auto pb-1"
+          class="flex min-h-0 flex-1 flex-col gap-[5.5px] overflow-y-auto pb-1"
         >
           <Show when={view().pinned.length > 0}>
             <div role="group" aria-labelledby="sidebar-cozy-pinned" class="flex shrink-0 flex-col gap-0.5 pb-0.5">
