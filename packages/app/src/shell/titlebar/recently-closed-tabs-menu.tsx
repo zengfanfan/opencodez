@@ -25,6 +25,8 @@ export function RecentlyClosedTabsMenu(props: {
   onNewTab: () => void
   tooltip?: JSX.Element
   vertical?: boolean
+  /** An icon-only vertical trigger, for a row shared with other sidebar actions. */
+  iconOnly?: boolean
   keybind?: string[]
 }) {
   const language = useLanguage()
@@ -107,21 +109,50 @@ export function RecentlyClosedTabsMenu(props: {
           </Tooltip>
         }
       >
-        <Menu.Context.Trigger
-          as="button"
-          type="button"
-          data-titlebar-tab-action
-          data-action="vertical-tabs-new-session"
-          class="group flex h-7 w-full shrink-0 items-center gap-2 rounded-[6px] px-2 text-[13px] leading-4 text-v2-text-text-faint hover:text-v2-text-text-base"
-          onClick={props.onNewTab}
-          aria-label={language.t("command.session.new")}
+        <Show
+          when={!props.iconOnly}
+          fallback={
+            <Tooltip
+              placement="bottom"
+              class="shrink-0"
+              value={
+                <>
+                  {language.t("command.session.new")}
+                  <Keybind keys={props.keybind ?? []} variant="neutral" dir="ltr" />
+                </>
+              }
+            >
+              <Menu.Context.Trigger
+                as={IconButton}
+                type="button"
+                variant="ghost-muted"
+                size="large"
+                class="!w-auto shrink-0 ps-2 pe-2"
+                data-titlebar-tab-action
+                data-action="vertical-tabs-new-session"
+                icon={<Icon name="edit" />}
+                onClick={props.onNewTab}
+                aria-label={language.t("command.session.new")}
+              />
+            </Tooltip>
+          }
         >
-          <Icon name="edit" class="shrink-0" />
-          <span class="min-w-0 truncate">{language.t("command.session.new")}</span>
-          <div class="ms-auto hidden shrink-0 group-hover:block group-focus-visible:block" aria-hidden="true">
-            <Keybind keys={props.keybind ?? []} variant="neutral" dir="ltr" />
-          </div>
-        </Menu.Context.Trigger>
+          <Menu.Context.Trigger
+            as="button"
+            type="button"
+            data-titlebar-tab-action
+            data-action="vertical-tabs-new-session"
+            class="group flex h-7 w-full shrink-0 items-center gap-2 rounded-[6px] px-2 text-[13px] leading-4 text-v2-text-text-faint hover:text-v2-text-text-base"
+            onClick={props.onNewTab}
+            aria-label={language.t("command.session.new")}
+          >
+            <Icon name="edit" class="shrink-0" />
+            <span class="min-w-0 truncate">{language.t("command.session.new")}</span>
+            <div class="ms-auto hidden shrink-0 group-hover:block group-focus-visible:block" aria-hidden="true">
+              <Keybind keys={props.keybind ?? []} variant="neutral" dir="ltr" />
+            </div>
+          </Menu.Context.Trigger>
+        </Show>
       </Show>
       <Menu.Context.Portal>
         <Menu.Context.Content

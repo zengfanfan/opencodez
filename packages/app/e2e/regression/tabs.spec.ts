@@ -2027,6 +2027,105 @@ test("the Windows menu shares the vertical sidebar's icon lane", async ({ page }
   await expect.poll(async () => [(await menu.boundingBox())?.x, (await home.boundingBox())?.x]).toEqual([19, 19])
 })
 
+test("the vertical sidebar shares Home's row with search and new session", async ({ page }) => {
+  await mockWorkspace(page, {
+    name: "ActionRow",
+    sessions: [a],
+    seed: {
+      settings: {
+        appearance: { tabLayout: "vertical" },
+        keybinds: { "home.toggle": "ctrl+alt+h", "tab.new": "ctrl+shift+n" },
+      },
+    },
+  })
+  await page.goto(
+    `/e2e/utils/windows-menu.html?${new URLSearchParams({ server: SERVER, path: sessionHref(a.id, "sidecar") })}`,
+  )
+  await expectSessionTitle(page, a.title)
+
+  const sidebar = page.locator('[data-slot="vertical-tabs-sidebar"]')
+  const home = sidebar.locator('[data-action="vertical-tabs-home"]')
+  const search = sidebar.locator('[data-action="vertical-tabs-search"]')
+  const newSession = sidebar.locator('[data-action="vertical-tabs-new-session"]')
+  const tooltip = page.locator('[data-component="tooltip-v2"][data-expanded]')
+
+  // Home keeps its label, and its shortcut no longer sits in the row.
+  await expect(home).toContainText("Home")
+  await expect(home.locator('[data-component="keybind-v2"]')).toHaveCount(0)
+
+  const [homeBox, searchBox, newBox, sidebarBox] = await Promise.all([
+    home.boundingBox(),
+    search.boundingBox(),
+    newSession.boundingBox(),
+    sidebar.boundingBox(),
+  ])
+
+  if (!homeBox || !searchBox || !newBox || !sidebarBox) throw new Error("vertical actions are not rendered")
+  expect(searchBox.y).toBe(homeBox.y)
+  expect(newBox.y).toBe(homeBox.y)
+  expect(homeBox.x + homeBox.width).toBeLessThanOrEqual(searchBox.x)
+  expect(searchBox.x + searchBox.width).toBeLessThanOrEqual(newBox.x)
+  expect(newBox.x + newBox.width).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width)
+
+  // The shortcut moved into the tooltip, and it stays readable right to left.
+  await home.hover()
+  await expect(tooltip).toContainText("Home")
+  await page.mouse.move(0, 0)
+  await expect(tooltip).toBeHidden()
+
+  await page.locator("html").evaluate((element) => element.setAttribute("dir", "rtl"))
+  await home.hover()
+  await expect(tooltip.locator('[data-slot="keybind-v2-label"]')).toHaveText(["Ctrl", "Alt", "H"])
+  await expect(tooltip.locator('[data-component="keybind-v2"]')).toHaveCSS("direction", "ltr")
+
+  // A real Tab opens the next action's tooltip as well.
+  await page.mouse.move(0, 0)
+  await expect(tooltip).toBeHidden()
+  await page.locator("html").evaluate((element) => element.removeAttribute("dir"))
+  await home.focus()
+  await page.keyboard.press("Tab")
+  await expect(search).toBeFocused()
+  await expect(tooltip).toContainText("Search sessions")
+  await expect(tooltip.locator('[data-slot="keybind-v2-label"]')).toHaveText(["Ctrl", "Shift", "F"])
+
+  // New session opens a tab; Home still reports the current route.
+  await expect(sidebar.locator("[data-titlebar-tab-slot]")).toHaveCount(1)
+  await newSession.hover()
+  await expect(tooltip).toContainText("New session")
+  await expect(tooltip.locator('[data-slot="keybind-v2-label"]')).toHaveText(["Ctrl", "Shift", "N"])
+  await newSession.click()
+  await expect(sidebar.locator("[data-titlebar-tab-slot]")).toHaveCount(2)
+
+  await expect(home).toHaveAttribute("aria-pressed", "false")
+  await home.click()
+  await expect(home).toHaveAttribute("aria-pressed", "true")
+
+  // The shared row keeps its shape at the sidebar's minimum width.
+  const handle = await sidebar.locator('[data-component="resize-handle"]').boundingBox()
+
+  if (!handle) throw new Error("vertical tab resize handle has no bounding box")
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(handle.x + handle.width / 2 - 200, handle.y + handle.height / 2)
+  await page.mouse.up()
+  await expect(sidebar).toHaveCSS("width", "136px")
+
+  const [narrowHome, narrowSearch, narrowNew, narrowSidebar] = await Promise.all([
+    home.boundingBox(),
+    search.boundingBox(),
+    newSession.boundingBox(),
+    sidebar.boundingBox(),
+  ])
+
+  if (!narrowHome || !narrowSearch || !narrowNew || !narrowSidebar)
+    throw new Error("vertical actions left the sidebar")
+  expect(narrowSearch.y).toBe(narrowHome.y)
+  expect(narrowNew.y).toBe(narrowHome.y)
+  expect(narrowSearch.x).toBeGreaterThanOrEqual(narrowHome.x + narrowHome.width)
+  expect(narrowNew.x).toBeGreaterThanOrEqual(narrowSearch.x + narrowSearch.width)
+  expect(narrowNew.x + narrowNew.width).toBeLessThanOrEqual(narrowSidebar.x + narrowSidebar.width)
+})
+
 for (const row of [
   { name: "left tabs", width: 1280, settings: { appearance: { tabLayout: "vertical" } }, position: { x: 20, y: 25 } },
   { name: "top tabs", width: 1280, settings: { appearance: { tabLayout: "horizontal" } }, position: { x: 14, y: 15 } },

@@ -104,6 +104,40 @@ function SidebarAction(props: {
   )
 }
 
+// An icon-only sidebar action; its name and shortcut live in the tooltip.
+function SidebarIconAction(props: {
+  action: string
+  icon: string
+  label: string
+  keybind: string[]
+  onClick: () => void
+}) {
+  return (
+    <Tooltip
+      placement="bottom"
+      class="shrink-0"
+      value={
+        <>
+          {props.label}
+          <Keybind keys={props.keybind} variant="neutral" dir="ltr" />
+        </>
+      }
+    >
+      <IconButton
+        type="button"
+        variant="ghost-muted"
+        size="large"
+        class="!w-auto shrink-0 ps-2 pe-2"
+        data-titlebar-tab-action
+        data-action={props.action}
+        icon={<Icon name={props.icon} />}
+        onClick={props.onClick}
+        aria-label={props.label}
+      />
+    </Tooltip>
+  )
+}
+
 export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
   const platform = usePlatform()
   const command = useCommand()
@@ -478,6 +512,50 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
 
             const newSessionButton = () => (
               <RecentlyClosedTabsMenu vertical onNewTab={openNewTab} keybind={command.keybindParts("tab.new")} />
+            )
+
+            // Home keeps its row and label; its shortcut moves into the tooltip, leaving the row's end to the two
+            // icon-only actions.
+            const sidebarHomeRow = () => (
+              <div class="flex w-full min-w-0 shrink-0 items-center gap-0.5">
+                <Tooltip
+                  placement="bottom"
+                  class="min-w-0 flex-1"
+                  value={
+                    <>
+                      {language.t("home.title")}
+                      <Keybind keys={command.keybindParts("home.toggle")} variant="neutral" dir="ltr" />
+                    </>
+                  }
+                >
+                  <button
+                    type="button"
+                    data-titlebar-tab-action
+                    data-action="vertical-tabs-home"
+                    data-state={layout.route().type === "home" ? "pressed" : undefined}
+                    class="flex h-7 w-full min-w-0 items-center gap-2 rounded-[6px] px-2 text-[13px] leading-[var(--line-height-compact)] text-v2-text-text-faint hover:text-v2-text-text-base data-[state=pressed]:text-v2-text-text-base"
+                    aria-label={language.t("home.title")}
+                    aria-pressed={layout.route().type === "home"}
+                    onClick={toggleHome}
+                  >
+                    <Icon name="grid-plus" class="shrink-0" />
+                    <span class="min-w-0 truncate">{language.t("home.title")}</span>
+                  </button>
+                </Tooltip>
+                <SidebarIconAction
+                  action="vertical-tabs-search"
+                  icon="magnifying-glass"
+                  label={language.t("command.session.search")}
+                  keybind={command.keybindParts("sessions.search")}
+                  onClick={() => command.trigger("sessions.search")}
+                />
+                <RecentlyClosedTabsMenu
+                  vertical
+                  iconOnly
+                  keybind={command.keybindParts("tab.new")}
+                  onNewTab={openNewTab}
+                />
+              </div>
             )
 
             const settingsButton = () => {
@@ -885,10 +963,19 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                               </div>
                             </Show>
                             <div class="flex w-full shrink-0 flex-col gap-[3px]">
-                              <Show when={!actionInSidebarHeader()}>{firstSidebarAction()}</Show>
-                              {searchButton(true)}
-                              <Show when={projectNavigation()} fallback={newSessionButton()}>
-                                {settingsButton()}
+                              <Show
+                                when={!actionInSidebarHeader() && !projectNavigation()}
+                                fallback={
+                                  <>
+                                    <Show when={!actionInSidebarHeader()}>{firstSidebarAction()}</Show>
+                                    {searchButton(true)}
+                                    <Show when={projectNavigation()} fallback={newSessionButton()}>
+                                      {settingsButton()}
+                                    </Show>
+                                  </>
+                                }
+                              >
+                                {sidebarHomeRow()}
                               </Show>
                             </div>
                             <div class="h-4 w-full shrink-0" aria-hidden="true" />
