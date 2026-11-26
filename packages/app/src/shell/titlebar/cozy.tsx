@@ -383,10 +383,10 @@ export function SidebarCozy() {
         <div
           data-slot="sidebar-cozy-scroll"
           data-scrollable
-          class="flex min-h-0 flex-1 flex-col gap-[8px] overflow-y-auto pb-1"
+          class="flex min-h-0 flex-1 flex-col gap-[10px] overflow-y-auto pb-1"
         >
           <Show when={view().pinned.length > 0}>
-            <div role="group" aria-labelledby="sidebar-cozy-pinned" class="flex shrink-0 flex-col gap-0.5 pb-0.5">
+            <div role="group" aria-labelledby="sidebar-cozy-pinned" class="flex shrink-0 flex-col gap-px pb-0.5">
               <CozySectionHeader
                 id="sidebar-cozy-pinned"
                 label={language.t("sidebar.recent.pinned")}
@@ -427,7 +427,7 @@ export function SidebarCozy() {
             </div>
           </Show>
 
-          <div role="group" aria-labelledby="sidebar-cozy-projects" class="flex shrink-0 flex-col gap-0.5 pb-0.5">
+          <div role="group" aria-labelledby="sidebar-cozy-projects" class="flex shrink-0 flex-col gap-px pb-0.5">
             <CozySectionHeader
               id="sidebar-cozy-projects"
               label={language.t("sidebar.organize.projects")}
@@ -487,7 +487,7 @@ export function SidebarCozy() {
           </div>
 
           <Show when={view().recent.length > 0}>
-            <div role="group" aria-labelledby="sidebar-cozy-recent" class="flex shrink-0 flex-col gap-0.5 pb-0.5">
+            <div role="group" aria-labelledby="sidebar-cozy-recent" class="flex shrink-0 flex-col gap-px pb-0.5">
               <CozySectionHeader
                 id="sidebar-cozy-recent"
                 label={language.t("sidebar.inbox.section.recent")}
