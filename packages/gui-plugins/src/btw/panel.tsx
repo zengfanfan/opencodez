@@ -1,4 +1,4 @@
-import { createMemo, Match, Show, Switch } from "solid-js"
+import { createMemo, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { Button } from "@opencode/ui/button"
 import { useI18n } from "@opencode/ui/context/i18n"
 import { Icon } from "@opencode/ui/icon"
@@ -9,36 +9,156 @@ import { showToast } from "@opencode/ui/toast"
 import { createCopyFeedback } from "@opencode/session-ui/copy"
 import { agentIcon } from "@opencode/session-ui/agent-icon"
 import { Markdown } from "@opencode/session-ui/markdown"
-import { usePlugin, type MountedSession } from "@opencode/plugin/gui"
-import type { BtwFailure } from "./machine"
+import { createKeyed, usePanel, usePlugin, type MountedSession } from "@opencode/plugin/gui"
+import { btwCanFollow, btwSubmitsOnEnter, type BtwChatView, type BtwFailure } from "./machine"
 import type { BtwModel } from "./model"
 
 export default function SessionBtwPanel(props: { btw: BtwModel; session: MountedSession; id: string }) {
   const ctx = usePlugin()
-  const i18n = useI18n()
-  const view = createMemo(() => props.btw.view(props.session, props.id))
+  const panel = usePanel()
+  const thread = createMemo(() => props.btw.thread(props.session, props.id))
 
-  const chat = createMemo(() => {
-    const current = view()
+  const turns = createMemo(() => {
+    const view = thread()
 
-    return current.phase === "loading" || current.phase === "missing" ? undefined : current
+    return view.phase === "ready" ? view.turns : []
   })
 
-  const running = createMemo(() => view().phase === "running")
+  const draft = createMemo(() => props.btw.draft(props.session, props.id))
+  const canSend = createMemo(() => btwCanFollow(thread()) && draft().trim() !== "")
+  let end: HTMLDivElement | undefined
+  let input: HTMLTextAreaElement | undefined
+
+  // The bottom fade shrinks with the remaining scroll so the last line ends clear of it.
+  const updateFade = (element: HTMLTextAreaElement) => {
+    element.style.setProperty(
+      "--btw-composer-fade",
+      `${Math.min(16, Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop))}px`,
+    )
+  }
+
+  // Two lines rest in the box, like the main composer, and a longer draft grows it to the same 180px cap.
+  const resize = (element: HTMLTextAreaElement) => {
+    element.style.height = "auto"
+    element.style.height = `${Math.min(element.scrollHeight, 180)}px`
+    updateFade(element)
+  }
+
+  // A new turn scrolls into view after it is in the DOM; an answer arriving does not move the view.
+  createKeyed(
+    () => turns().length,
+    () => {
+      const frame = requestAnimationFrame(() => end?.scrollIntoView({ block: "end" }))
+      onCleanup(() => cancelAnimationFrame(frame))
+    },
+  )
+
+  // A tab selection asks for the input. The panel can mount after that request and renders detached, so claim it once
+  // the region shows the panel; later requests run here too.
+  createKeyed(
+    () => (panel.visible() ? props.btw.focusRequest(props.session, props.id) : undefined),
+    (request) => {
+      if (request) input?.focus()
+    },
+  )
+
+  onMount(() => {
+    if (panel.visible() && props.btw.focusRequest(props.session, props.id)) input?.focus()
+  })
+
+  const send = () => {
+    if (!props.btw.follow(props.session, props.id, draft())) return
+    props.btw.setDraft(props.session, props.id, "")
+
+    if (input) resize(input)
+  }
+
+  return (
+    <div class="relative flex h-full min-h-0 flex-col bg-v2-background-bg-base" data-slot="session-btw-panel">
+      {/* The thread fades under the tab strip like the main timeline under its header. */}
+      <div
+        aria-hidden="true"
+        class="pointer-events-none absolute inset-x-0 top-0 z-10 h-4 bg-[linear-gradient(to_bottom,var(--v2-background-bg-base),transparent)]"
+      />
+      <div class="min-h-0 flex-1 overflow-y-auto" data-slot="session-btw-scroll" data-scrollable>
+        <div class="min-w-0 w-full max-w-full px-4 pt-6 pb-8 md:max-w-session md:mx-auto md:px-6">
+          <For each={turns()}>
+            {(turn) => <Turn btw={props.btw} session={props.session} id={turn.id} view={turn.view} />}
+          </For>
+          <div ref={(element) => (end = element)} />
+        </div>
+      </div>
+      <Show when={thread().phase === "ready"}>
+        <div class="shrink-0 px-3 pb-3">
+          <div class="md:max-w-session md:mx-auto">
+            <div class="relative w-full overflow-clip rounded-xl bg-v2-background-bg-base shadow-[var(--v2-elevation-raised),0_0_0_0.5px_var(--v2-background-bg-base)] [[data-color-scheme=dark]_&]:bg-v2-background-bg-layer-01">
+              <textarea
+                ref={(element) => {
+                  input = element
+                  resize(element)
+                }}
+                rows={1}
+                data-slot="session-btw-input"
+                value={draft()}
+                placeholder={ctx.t("follow.placeholder")}
+                aria-label={ctx.t("follow.placeholder")}
+                class="block max-h-[180px] min-h-12 w-full resize-none overflow-y-auto bg-transparent ps-4 pe-[calc(12px-var(--scrollbar-size,0px))] pt-2 pb-0 text-[13px] font-[440] leading-5 text-v2-text-text-base outline-none placeholder:text-v2-text-text-faint"
+                style={{ "scrollbar-gutter": "stable" }}
+                onInput={(event) => {
+                  props.btw.setDraft(props.session, props.id, event.currentTarget.value)
+                  resize(event.currentTarget)
+                }}
+                onScroll={(event) => updateFade(event.currentTarget)}
+                onKeyDown={(event) => {
+                  if (!btwSubmitsOnEnter(event)) return
+                  event.preventDefault()
+                  send()
+                }}
+              />
+              <div class="flex h-10 shrink-0 items-center justify-end px-2">
+                <Tooltip value={ctx.t("follow.send")} placement="top">
+                  <IconButton
+                    size="normal"
+                    variant="submit"
+                    class="size-7 rounded-md p-[6px]"
+                    icon={<Icon name="arrow-up" />}
+                    aria-label={ctx.t("follow.send")}
+                    disabled={!canSend()}
+                    onClick={send}
+                  />
+                </Tooltip>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Show>
+    </div>
+  )
+}
+
+function Turn(props: { btw: BtwModel; session: MountedSession; id: string; view: BtwChatView }) {
+  const ctx = usePlugin()
+  const i18n = useI18n()
+
+  const chat = createMemo(() => {
+    const view = props.view
+
+    return view.phase === "loading" || view.phase === "missing" ? undefined : view
+  })
+
+  const running = createMemo(() => props.view.phase === "running")
 
   const failure = createMemo(() => {
-    const current = view()
+    const current = props.view
 
     return current.phase === "failed" ? current.failure : undefined
   })
 
   const answered = createMemo(() => {
-    const current = view()
+    const current = props.view
 
     return current.phase === "answered" ? current : undefined
   })
-
-  const question = () => chat()?.question
 
   const failureDetail = (value: BtwFailure) => {
     if (value.reason === "empty") return ctx.t("error.empty")
@@ -133,16 +253,16 @@ export default function SessionBtwPanel(props: { btw: BtwModel; session: Mounted
   })
 
   return (
-    <div class="flex h-full min-h-0 flex-col bg-v2-background-bg-base" data-slot="session-btw-panel">
-      <div class="min-h-0 flex-1 overflow-y-auto" data-scrollable>
-        <div class="min-w-0 w-full max-w-full px-4 pt-6 pb-8 md:max-w-session md:mx-auto md:px-6">
+    <Show when={chat()}>
+      {(view) => (
+        <>
           <div data-component="user-message">
             <div data-slot="user-message-body">
               <div data-slot="user-message-text" dir="auto">
-                {question()}
+                {view().question}
               </div>
             </div>
-            <Show when={question()}>
+            <Show when={view().question}>
               <div data-slot="user-message-footer">
                 <Show when={created()}>
                   {(at) => (
@@ -157,12 +277,12 @@ export default function SessionBtwPanel(props: { btw: BtwModel; session: Mounted
                 >
                   <span data-slot="user-message-agent" tabIndex={0}>
                     <span class="sr-only">{userMeta() || i18n.t("ui.message.agentDetails")}</span>
-                    <Icon name={agentIcon(chat()?.agent)} size="small" />
+                    <Icon name={agentIcon(view().agent)} size="small" />
                   </span>
                 </Tooltip>
                 <CopyButton
                   size="small"
-                  text={question()}
+                  text={view().question}
                   label={i18n.t("ui.message.copyMessage")}
                   copiedLabel={i18n.t("ui.message.copied")}
                 />
@@ -216,7 +336,7 @@ export default function SessionBtwPanel(props: { btw: BtwModel; session: Mounted
                     >
                       <span data-slot="text-part-agent" tabIndex={0}>
                         <span class="sr-only">{answerMeta() || i18n.t("ui.message.agentDetails")}</span>
-                        <Icon name={agentIcon(chat()?.agent)} size="small" />
+                        <Icon name={agentIcon(view().agent)} size="small" />
                       </span>
                     </Tooltip>
                     <Show when={answerAt()}>
@@ -234,9 +354,9 @@ export default function SessionBtwPanel(props: { btw: BtwModel; session: Mounted
               )}
             </Match>
           </Switch>
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    </Show>
   )
 }
 

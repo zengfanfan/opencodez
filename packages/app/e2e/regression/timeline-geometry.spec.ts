@@ -847,7 +847,8 @@ async function scrollsBehindComposerRegion(
     await page.keyboard.type(line)
   }
 
-  await expect.poll(async () => (await dock.boundingBox())!.height).toBeGreaterThan(before + 40)
+  // The resting composer already holds two lines, so three more lines grow it by two lines' worth.
+  await expect.poll(async () => (await dock.boundingBox())!.height).toBeGreaterThanOrEqual(before + 40)
   await expect.poll(geometry).toEqual(expected)
 }
 

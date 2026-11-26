@@ -97,6 +97,8 @@ export type ComposerEditorProps = {
   modelControl?: JSX.Element
   modelControlsVisible?: boolean
   controlsEnd?: JSX.Element
+  /** Controls immediately before the submit button. */
+  actionsStart?: JSX.Element
   attachKeybind?: string[]
   attachShortcut?: string
   alternateKeybind?: string[]
@@ -402,7 +404,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
               spellcheck={mode() === "normal"}
               // @ts-expect-error
               autocomplete="off"
-              class="relative z-10 block w-full whitespace-pre-wrap bg-transparent ps-4 pe-[var(--composer-scroll-end)] pt-4 pb-2 text-[13px] font-[440] leading-5 text-v2-text-text-base focus:outline-none [&_[data-mention=file]]:text-syntax-property [&_[data-mention=agent]]:text-syntax-type [&_[data-mention=reference]]:text-v2-text-text-muted"
+              class="relative z-10 block w-full min-h-12 whitespace-pre-wrap bg-transparent ps-4 pe-[var(--composer-scroll-end)] pt-2 pb-0 text-[13px] font-[440] leading-5 text-v2-text-text-base focus:outline-none [&_[data-mention=file]]:text-syntax-property [&_[data-mention=agent]]:text-syntax-type [&_[data-mention=reference]]:text-v2-text-text-muted"
               classList={{ "font-mono! tracking-[-0.04px]": mode() === "shell", "opacity-50": props.disabled }}
               style={{
                 "unicode-bidi": mode() === "normal" ? "plaintext" : undefined,
@@ -492,7 +494,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
             <Show when={!props.controller.value()}>
               <div
                 dir={mode() === "normal" ? "auto" : "ltr"}
-                class="pointer-events-none absolute inset-x-0 top-0 ps-4 pe-[var(--composer-scroll-end)] pt-4 text-[13px] font-[440] leading-5 text-v2-text-text-faint"
+                class="pointer-events-none absolute inset-x-0 top-0 ps-4 pe-[var(--composer-scroll-end)] pt-2 text-[13px] font-[440] leading-5 text-v2-text-text-faint"
                 classList={{ "font-mono! tracking-[-0.04px]": mode() === "shell" }}
                 style={{ "unicode-bidi": mode() === "normal" ? "plaintext" : undefined, "text-align": "start" }}
               >
@@ -505,7 +507,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
           </div>
         </div>
 
-        <div class="flex h-11 shrink-0 items-center px-2" classList={{ hidden: touch() && mode() === "shell" }}>
+        <div class="flex h-10 shrink-0 items-center px-2" classList={{ hidden: touch() && mode() === "shell" }}>
           <Show when={!touch()}>
             <div
               class="flex shrink-0 items-center"
@@ -594,6 +596,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
                   </span>
                 </Button>
               </Show>
+              {props.actionsStart}
               <ComposerEditorSubmitButton
                 mode={mode()}
                 stopping={view.submit.stopping()}

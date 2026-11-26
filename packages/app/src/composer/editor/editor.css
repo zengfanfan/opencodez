@@ -8,21 +8,21 @@
   font-weight: var(--font-weight-medium);
 }
 
-/* Matches the 16px session title fade. The top fade only covers the editor's 16px top padding until text scrolls
+/* Matches the 8px session title fade. The top fade only covers the editor's 8px top padding until text scrolls
    under it. */
 [data-component="composer-scroll"],
 [data-slot="composer-content"][data-history-preview] {
   mask-image: linear-gradient(
     to bottom,
     transparent,
-    black 16px,
+    black 8px,
     black calc(100% - var(--composer-fade-bottom, 0px)),
     transparent
   );
 }
 
 /* Chromium reveals the caret flush with the viewport edge after Enter or typing, ignoring the editor padding, so the
-   last line would land under the fade. Keep revealed carets clear of both 16px fades. */
+   last line would land under the fade. Keep revealed carets clear of the top fade and the 16px bottom fade. */
 [data-component="composer-scroll"],
 [data-slot="composer-content"][data-history-preview] {
   scroll-padding-block: 16px;

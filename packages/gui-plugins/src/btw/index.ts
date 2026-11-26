@@ -13,6 +13,8 @@ const Chats = Schema.Struct({
   chats: Schema.Array(
     Schema.Struct({
       id: Schema.String,
+      /** The tab this turn belongs to. Absent on the thread's first question, whose id is the tab id. */
+      thread: Schema.optional(Schema.String),
       question: Schema.String,
       answer: Schema.optional(Schema.String),
       agent: Schema.optional(Schema.String),
@@ -25,7 +27,7 @@ const Chats = Schema.Struct({
 
 export default Plugin.define({
   stores: {
-    // Each open /btw tab's chat (its question and answer), kept until its tab closes.
+    // Each open /btw tab's turns (its question, answer and follow-ups), kept until its tab closes.
     chats: Store.session(Chats, { chats: [] }),
   },
   i18n: builtinCatalog({

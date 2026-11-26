@@ -156,10 +156,7 @@ story(
       .toBe(0)
     await expect(content).not.toHaveCSS("mask-image", "none")
     await expect(viewport).toHaveCSS("mask-image", "none")
-    await expect(content).toHaveCSS("--composer-fade-bottom", "16px")
-    await content.evaluate((element) => {
-      element.scrollTop = element.scrollHeight
-    })
+    // The two-line resting composer fits the two-line preview, so there is no bottom fade to scroll away.
     await expect(content).toHaveCSS("--composer-fade-bottom", "0px")
     await expect
       .poll(async () => (await component.locator('[data-component="composer-suggestions"]').boundingBox())?.y)

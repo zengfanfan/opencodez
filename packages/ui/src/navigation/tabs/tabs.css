@@ -586,7 +586,6 @@
   min-width: 0;
   gap: 8px;
   box-sizing: border-box;
-  border-bottom: 0.5px solid var(--v2-border-border-base);
   background-color: var(--v2-background-bg-base);
 }
 

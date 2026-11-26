@@ -28,6 +28,8 @@ export function Composer(props: {
   suggestionBoundary?: () => HTMLElement | undefined
   /** Controls after the model and variant chips, such as a plugin's session usage control. */
   controlsEnd?: JSX.Element
+  /** Controls immediately before the submit button, such as a plugin's side chat. */
+  actionsStart?: JSX.Element
 }) {
   const dialog = useDialog()
   const command = useCommand()
@@ -72,6 +74,7 @@ export function Composer(props: {
         class={props.class}
         modelControlsVisible={!props.model.model.loading || !!props.model.model.preview}
         controlsEnd={props.controlsEnd}
+        actionsStart={props.actionsStart}
         attachKeybind={command.keybindParts("file.attach")}
         attachShortcut={command.keybind("file.attach")}
         alternateKeybind={[formatKeybind("mod", language.t), "↵"]}

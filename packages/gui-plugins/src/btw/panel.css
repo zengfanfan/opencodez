@@ -1,0 +1,25 @@
+/* The side chat input fades its top and bottom edges while it scrolls, like the main composer. The bottom fade
+   shrinks with the remaining scroll so the last line ends clear of it. */
+[data-slot="session-btw-input"] {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 8px,
+    black calc(100% - var(--btw-composer-fade, 0px)),
+    transparent
+  );
+  /* Chromium reveals the caret flush with the scrollport edge, which would land under the fade. */
+  scroll-padding-block: 16px;
+}
+
+/* The thread fades into the composer at the bottom like the main timeline above its composer card. */
+[data-slot="session-btw-scroll"] {
+  mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - 20px),
+    rgb(0 0 0 / 0.84) calc(100% - 15px),
+    rgb(0 0 0 / 0.5) calc(100% - 10px),
+    rgb(0 0 0 / 0.16) calc(100% - 5px),
+    transparent
+  );
+}

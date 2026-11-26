@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import {
   BTW_GENERATE_TIMEOUT_MS,
+  BTW_HISTORY_TURNS,
+  BTW_INSTRUCTIONS,
+  btwCanFollow,
   btwChatView,
+  btwKeepsChat,
+  btwPrompt,
+  btwSubmitsOnEnter,
   btwTabView,
+  btwThreadView,
   createBtwState,
   transitionBtw,
   type BtwEffect,
@@ -288,5 +295,152 @@ describe("exits", () => {
     const later: BtwEvent[] = [asked, retried(), succeeded(1, "Late"), { type: "disposed" }]
 
     later.forEach((event) => expect(transitionBtw(disposed.state, event).state).toBe(disposed.state))
+  })
+})
+
+describe("threads", () => {
+  const follow: BtwEvent = {
+    type: "chat.asked",
+    sessionKey: "s1",
+    id: "c2",
+    thread: "c1",
+    question: "  And then?  ",
+    created: 1_100,
+    agent: "build",
+    model,
+  }
+
+  test("a follow-up stores its turn without opening another tab", () => {
+    const transitioned = transitionBtw(play(createBtwState(), asked).state, follow)
+
+    expect(transitioned.effects).toEqual([
+      {
+        type: "persist-question",
+        id: "c2",
+        thread: "c1",
+        question: "And then?",
+        created: 1_100,
+        agent: "build",
+        model,
+      },
+      { type: "generate", id: "c2", attempt: 2, thread: "c1", question: "And then?", timeout: BTW_GENERATE_TIMEOUT_MS },
+    ])
+  })
+
+  test("a thread reads its stored turns in order and keeps its first question as the title", () => {
+    const stored: BtwSavedChat[] = [
+      { id: "t1", question: "First?", answer: "One." },
+      { id: "t2", thread: "t1", question: "Then?", answer: "Two." },
+      { id: "other", question: "Another tab" },
+    ]
+
+    const view = btwThreadView(createBtwState(), stored, "s1", "t1")
+
+    expect(view.phase).toBe("ready")
+
+    if (view.phase !== "ready") return
+
+    expect(view.busy).toBe(false)
+    expect(view.turns.map((turn) => turn.id)).toEqual(["t1", "t2"])
+    expect(view.turns[1]?.view).toMatchObject({ phase: "answered", answer: "Two." })
+    expect(btwTabView(createBtwState(), stored, "s1", "t1")).toEqual({ status: "ready", question: "First?" })
+  })
+
+  test("a live thread before the store loads is ready, and busy while it runs", () => {
+    const running = play(createBtwState(), asked).state
+    const started = btwThreadView(running, undefined, "s1", "c1")
+
+    expect(started).toMatchObject({ phase: "ready", busy: true })
+    expect(btwCanFollow(started)).toBe(false)
+    expect(btwTabView(running, undefined, "s1", "c1")).toEqual({ status: "ready", question: "Why?" })
+
+    const answered = transitionBtw(running, succeeded(1, "Because.")).state
+    const finished = btwThreadView(answered, undefined, "s1", "c1")
+
+    expect(finished).toMatchObject({ phase: "ready", busy: false })
+    expect(btwCanFollow(finished)).toBe(true)
+  })
+
+  test("a restored tab waits for its store before it can follow up", () => {
+    const loading = btwThreadView(createBtwState(), undefined, "s1", "c1")
+    const missing = btwThreadView(createBtwState(), [], "s1", "c1")
+
+    expect(loading).toEqual({ phase: "loading" })
+    expect(missing).toEqual({ phase: "missing" })
+    expect(btwCanFollow(loading)).toBe(false)
+    expect(btwCanFollow(missing)).toBe(false)
+  })
+
+  test("an opened side chat is ready before its first question", () => {
+    const empty = btwThreadView(createBtwState(), undefined, "s1", "c1", true)
+
+    expect(empty).toEqual({ phase: "ready", busy: false, turns: [] })
+    expect(btwCanFollow(empty)).toBe(true)
+    expect(btwTabView(createBtwState(), undefined, "s1", "c1", true)).toEqual({ status: "ready", question: "" })
+  })
+
+  test("a turn belongs to its first question or its thread", () => {
+    expect(btwKeepsChat({ id: "other" }, "c1")).toBe(true)
+    expect(btwKeepsChat({ id: "c1" }, "c1")).toBe(false)
+    expect(btwKeepsChat({ id: "c2", thread: "c1" }, "c1")).toBe(false)
+  })
+
+  test("closing a tab ends every running turn of its thread and forgets them", () => {
+    const state = play(createBtwState(), asked, follow).state
+    const removed = transitionBtw(state, { type: "chat.removed", sessionKey: "s1", id: "c1" })
+
+    expect(removed.effects).toEqual([
+      { type: "abort", attempt: 1 },
+      { type: "abort", attempt: 2 },
+      { type: "delete-chat", id: "c1" },
+    ])
+    expect(btwChatView(removed.state, undefined, "s1", "c2")).toEqual({ phase: "loading" })
+  })
+
+  test("retrying a follow-up keeps its thread", () => {
+    const failed = play(createBtwState(), asked, follow, {
+      type: "generate.failed",
+      sessionKey: "s1",
+      id: "c2",
+      attempt: 2,
+      message: "Offline",
+    }).state
+
+    expect(transitionBtw(failed, { type: "chat.retried", sessionKey: "s1", id: "c2", now: 2_000 }).effects).toEqual([
+      { type: "generate", id: "c2", attempt: 3, thread: "c1", question: "And then?", timeout: BTW_GENERATE_TIMEOUT_MS },
+    ])
+  })
+})
+
+describe("prompt", () => {
+  test("a first turn sends only the instructions and the question", () => {
+    expect(btwPrompt([], "Why?")).toBe(`${BTW_INSTRUCTIONS}\n\nWhy?`)
+  })
+
+  test("a follow-up replays only the newest answered pairs", () => {
+    const history = Array.from({ length: BTW_HISTORY_TURNS + 2 }, (_, index) => ({
+      question: `old ${index + 1}`,
+      answer: `answer ${index + 1}`,
+    }))
+
+    const prompt = btwPrompt(history, "new question")
+
+    expect(prompt).toContain("Side conversation so far:")
+    expect(prompt).not.toContain("old 1 ")
+    expect(prompt).not.toContain("old 2 ")
+    expect(prompt).toContain("old 3 ")
+    expect(prompt).toContain(`old ${BTW_HISTORY_TURNS + 2} `)
+    expect(prompt).toContain("Q: new question")
+    expect(prompt.indexOf("old 3 ")).toBeLessThan(prompt.indexOf(`old ${BTW_HISTORY_TURNS + 2} `))
+  })
+
+  test("Enter sends unless Shift or an IME is involved", () => {
+    const enter = { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 }
+
+    expect(btwSubmitsOnEnter(enter)).toBe(true)
+    expect(btwSubmitsOnEnter({ ...enter, shiftKey: true })).toBe(false)
+    expect(btwSubmitsOnEnter({ ...enter, isComposing: true })).toBe(false)
+    expect(btwSubmitsOnEnter({ ...enter, keyCode: 229 })).toBe(false)
+    expect(btwSubmitsOnEnter({ ...enter, key: "a" })).toBe(false)
   })
 })

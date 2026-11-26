@@ -637,6 +637,17 @@ export function ActiveSessionComposerRegion(props: {
                         }}
                       />
                     }
+                    actionsStart={
+                      <PluginSlot
+                        at="session.composer.submit"
+                        input={{
+                          get session() {
+                            return props.view()
+                          },
+                          screen: props.screen,
+                        }}
+                      />
+                    }
                   />
                 </VoiceComposer>
               </Show>

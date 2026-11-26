@@ -27,8 +27,8 @@ test("keeps separate one-shot /btw answers and restores them after reload", asyn
   await editor.fill("/btw first question")
   await editor.press("Enter")
   await expect(panel.getByText("First answer", { exact: true })).toBeVisible()
-  await expect(panel.getByRole("textbox")).toHaveCount(0)
-  await expect(panel.getByRole("button", { name: "Send", exact: true })).toHaveCount(0)
+  await expect(panel.getByRole("textbox")).toHaveCount(1)
+  await expect(panel.getByRole("button", { name: "Send", exact: true })).toHaveCount(1)
   await panel.getByText("End of first answer", { exact: true }).scrollIntoViewIfNeeded()
   await expect(panel.getByText("End of first answer", { exact: true })).toBeInViewport()
   await editor.fill("/btw second question")
@@ -50,7 +50,7 @@ test("keeps separate one-shot /btw answers and restores them after reload", asyn
   await first.click()
   await expect(panel.getByText("First answer", { exact: true })).toBeVisible()
   await expect(panel.getByText("Second answer", { exact: true })).toHaveCount(0)
-  await expect(panel.getByRole("textbox")).toHaveCount(0)
+  await expect(panel.getByRole("textbox")).toHaveCount(1)
   await page.screenshot({ path: testInfo.outputPath("restored-answer.png") })
 
   // Closing a tab forgets its question; the other tab and its answer survive a reload.
@@ -64,6 +64,52 @@ test("keeps separate one-shot /btw answers and restores them after reload", asyn
   await expect(first).toHaveCount(0)
   expect(generations).toHaveLength(2)
   expect(prompts).toEqual([])
+})
+
+test("keeps follow-ups in one /btw thread without touching the session", async ({ page }) => {
+  const prompts: unknown[] = []
+  const generations: { sessionID: string; prompt: string }[] = []
+
+  const { editor } = await openSession(page, {
+    name: "BtwThread",
+    onPrompt: (input) => prompts.push(input),
+    generate: (input) => {
+      generations.push(input)
+
+      return { text: input.prompt.includes("follow-up") ? "Follow-up answer" : "Thread answer" }
+    },
+  })
+
+  const panel = page.locator('[data-slot="session-btw-panel"]')
+  const composer = panel.getByRole("textbox")
+  const send = panel.getByRole("button", { name: "Send", exact: true })
+
+  await editor.fill("/btw first side question")
+  await editor.press("Enter")
+  await expect(panel.getByText("Thread answer", { exact: true })).toBeVisible()
+  await expect(composer).toBeEditable()
+  await expect(send).toBeDisabled()
+
+  await composer.fill("follow-up question")
+  await expect(send).toBeEnabled()
+  await composer.press("Enter")
+  await expect(panel.getByText("Follow-up answer", { exact: true })).toBeVisible()
+  await expect(panel.getByText("first side question", { exact: true })).toBeVisible()
+  await expect(composer).toHaveValue("")
+  await expect(page.getByRole("tab", { name: "first side question", exact: true })).toHaveCount(1)
+
+  expect(generations).toHaveLength(2)
+  expect(generations[1]?.prompt).toContain("first side question")
+  expect(generations[1]?.prompt).toContain("Thread answer")
+  expect(generations[1]?.prompt).toContain("follow-up question")
+  expect(prompts).toEqual([])
+
+  await page.reload()
+  await expect(panel.getByText("first side question", { exact: true })).toBeVisible()
+  await expect(panel.getByText("follow-up question", { exact: true })).toBeVisible()
+  await expect(panel.getByText("Thread answer", { exact: true })).toBeVisible()
+  await expect(panel.getByText("Follow-up answer", { exact: true })).toBeVisible()
+  await expect(composer).toBeEditable()
 })
 
 test("isolates concurrent side questions and makes interrupted and blank answers retryable", async ({ page }) => {
@@ -121,7 +167,7 @@ test("isolates concurrent side questions and makes interrupted and blank answers
   await page.getByRole("tab", { name: "slow question", exact: true }).click()
   await expect(panel.getByText("Retried answer", { exact: true })).toBeVisible()
   await expect(panel.getByText("Abandoned answer", { exact: true })).toHaveCount(0)
-  await expect(panel.getByRole("textbox")).toHaveCount(0)
+  await expect(panel.getByRole("textbox")).toHaveCount(1)
 
   await editor.fill("/btw blank question")
   await editor.press("Enter")
@@ -155,7 +201,7 @@ test("keeps many long-titled side tabs usable at a narrow desktop width", async 
   }
 
   await expect(page.getByRole("tab", { name: /^Side \d+:/ })).toHaveCount(12)
-  await expect(panel.getByRole("textbox")).toHaveCount(0)
+  await expect(panel.getByRole("textbox")).toHaveCount(1)
   await page.reload()
   await expect(page.getByRole("tab", { name: /^Side \d+:/ })).toHaveCount(12)
   await expect(panel.getByText("Saved overflow answer", { exact: true })).toBeVisible()
@@ -215,7 +261,9 @@ test("answers /btw in the side panel without admitting a prompt", async ({ page 
   await editor.fill("/btw how does the retry loop work?")
   await editor.press("Enter")
   await expect(panel).toBeVisible()
-  await expect(panel.getByRole("textbox")).toHaveCount(0)
+  await expect(panel.getByRole("textbox")).toHaveCount(1)
+  await expect(panel.getByRole("textbox")).toBeEditable()
+  await expect(panel.getByRole("button", { name: "Send", exact: true })).toBeDisabled()
   await expect(panel.getByRole("status")).toContainText("Working")
   await expect(page.getByRole("tab", { name: "how does the retry loop work?", exact: true })).toHaveAttribute(
     "data-selected",
@@ -321,6 +369,86 @@ test("answers /btw in the side panel without admitting a prompt", async ({ page 
   expect(ownerWarnings).toEqual([])
 })
 
+test("opens a side chat from the composer and from the new tab view", async ({ page }) => {
+  const { editor } = await openSession(page, {
+    name: "BtwOpen",
+    generate: (input) => ({
+      text: input.prompt.includes("from the composer") ? "Composer answer" : "New tab answer",
+    }),
+  })
+
+  const openSide = page.getByRole("button", { name: "Open side chat", exact: true })
+  const submit = page.locator('[data-action="composer-submit"]')
+  const openBox = await openSide.boundingBox()
+  const submitBox = await submit.boundingBox()
+
+  if (!openBox || !submitBox) throw new Error("composer buttons are not laid out")
+  expect(openBox.height).toBeLessThan(submitBox.height)
+
+  await openSide.click()
+  const panel = page.locator('[data-slot="session-btw-panel"]')
+  const composer = panel.getByRole("textbox")
+  await expect(panel).toBeVisible()
+  await expect(composer).toBeEditable()
+  // Opening a side chat moves the keyboard into it.
+  await expect(composer).toBeFocused()
+
+  await editor.fill("main line one")
+  await editor.press("Shift+Enter")
+  await editor.pressSequentially("main line two")
+  await composer.fill("side line one")
+  await composer.press("Shift+Enter")
+  await composer.pressSequentially("side line two")
+
+  // Both composers rest two lines tall, so a second line does not grow either box, and the boxes line up at the
+  // bottom like the main composer.
+  const mainBox = await page.locator('[data-component="composer"]').boundingBox()
+  const sideBox = await composer.locator("xpath=..").boundingBox()
+  const mainInput = await page.locator('[data-component="composer-editor"]').boundingBox()
+  const sideInput = await composer.boundingBox()
+
+  if (!mainBox || !sideBox || !mainInput || !sideInput) throw new Error("composers are not laid out")
+
+  expect(mainInput.height).toBe(48)
+  expect(sideInput.height).toBe(48)
+  expect(sideBox.height).toBe(mainBox.height)
+  expect(Math.round(sideBox.y + sideBox.height)).toBe(Math.round(mainBox.y + mainBox.height))
+
+  // Scrolled text fades at both edges like the main composer, and the bottom fade closes at the end of the draft.
+  const fade = () =>
+    composer.evaluate((element) => getComputedStyle(element).getPropertyValue("--btw-composer-fade").trim())
+
+  await composer.fill(Array.from({ length: 20 }, (_, index) => `side line ${index}`).join("\n"))
+  await composer.evaluate((element) => {
+    element.scrollTop = 0
+  })
+  await expect.poll(fade).toBe("16px")
+  expect(await composer.evaluate((element) => getComputedStyle(element).maskImage)).toContain("linear-gradient")
+  await composer.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+  })
+  await expect.poll(fade).toBe("0px")
+
+  // The thread scrolls under the composer with the same bottom fade as the main timeline.
+  const thread = panel.locator('[data-slot="session-btw-scroll"]')
+  expect(await thread.evaluate((element) => getComputedStyle(element).maskImage)).toContain("linear-gradient")
+
+  await composer.fill("from the composer")
+  await composer.press("Enter")
+  await expect(panel.getByText("Composer answer", { exact: true })).toBeVisible()
+  await expect(page.getByRole("tab", { name: "from the composer", exact: true })).toBeVisible()
+
+  await page.getByRole("button", { name: "Add tab", exact: true }).click()
+  await page.getByRole("button", { name: "Side chat", exact: true }).click()
+  await expect(composer).toBeEditable()
+  await expect(composer).toBeFocused()
+
+  await composer.fill("from the new tab")
+  await composer.press("Enter")
+  await expect(panel.getByText("New tab answer", { exact: true })).toBeVisible()
+  await expect(page.getByRole("tab", { name: "from the new tab", exact: true })).toBeVisible()
+})
+
 test("localizes the /btw footer controls", async ({ page }) => {
   const { editor } = await openSession(page, {
     name: "BtwLocale",
@@ -333,6 +461,9 @@ test("localizes the /btw footer controls", async ({ page }) => {
   await editor.press("Enter")
   const panel = page.locator('[data-slot="session-btw-panel"]')
   await expect(panel.getByText("这是侧栏回答。", { exact: true })).toBeVisible()
+  await expect(panel.getByRole("textbox")).toHaveAttribute("placeholder", "继续追问")
+  await expect(panel.getByRole("button", { name: "发送", exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "打开侧边聊天", exact: true })).toBeVisible()
   await expect(panel.getByRole("button", { name: "复制消息", exact: true })).toHaveCount(1)
   await expect(panel.getByRole("button", { name: "复制回复", exact: true })).toHaveCount(1)
 
@@ -346,4 +477,17 @@ test("localizes the /btw footer controls", async ({ page }) => {
   await expect(page.getByRole("tooltip").filter({ hasText: /\d{4}/ })).toBeVisible()
   await panel.getByRole("button", { name: "复制回复", exact: true }).hover()
   await expect(page.getByRole("tooltip", { name: "复制回复", exact: true })).toBeVisible()
+
+  const openSide = page.getByRole("button", { name: "打开侧边聊天", exact: true })
+  await openSide.hover()
+  await expect(page.getByRole("tooltip", { name: "打开侧边聊天", exact: true })).toBeVisible()
+
+  const send = panel.getByRole("button", { name: "发送", exact: true })
+  await panel.getByRole("textbox").fill("继续问")
+  await send.hover()
+  await expect(page.getByRole("tooltip", { name: "发送", exact: true })).toBeVisible()
+
+  await page.getByRole("button", { name: "添加标签页", exact: true }).click()
+  await page.getByRole("button", { name: "侧边聊天", exact: true }).click()
+  await expect(panel.getByRole("textbox")).toHaveAttribute("placeholder", "继续追问")
 })

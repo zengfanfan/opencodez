@@ -1,14 +1,18 @@
 import { createMemo, lazy, onCleanup, Suspense } from "solid-js"
 import { Icon } from "@opencode/ui/icon"
-import { Command, createKeyed, type PanelTab, type Plugin } from "@opencode/plugin/gui"
-import { BuiltinPanel, onIdle } from "@opencode/plugin/gui/builtin"
+import { IconButton } from "@opencode/ui/icon-button"
+import { Tooltip } from "@opencode/ui/tooltip"
+import { Command, createKeyed, MenuItem, Style, type PanelTab, type Plugin } from "@opencode/plugin/gui"
+import { BuiltinPanel, BuiltinSlot, onIdle } from "@opencode/plugin/gui/builtin"
 import type Btw from "./index"
 import type { BtwTabView } from "./machine"
 import { createBtw } from "./model"
+import panelStyles from "./panel.css?inline"
 
 const setup: Plugin.Setup<typeof Btw> = (ctx) => {
   const SessionBtwPanel = lazy(() => import("./panel"))
   onCleanup(onIdle(() => void SessionBtwPanel.preload()))
+  ctx.add(Style, panelStyles)
   const layout = ctx.layout
   const sessions = ctx.sessions
   const btw = createBtw(ctx)
@@ -17,7 +21,9 @@ const setup: Plugin.Setup<typeof Btw> = (ctx) => {
 
   // Tab objects per session, reused so strip updates and session switches do not rebuild a trigger.
   const tabs = new Map<string, Map<string, PanelTab>>()
-  const title = (view: BtwTabView) => (view.status === "ready" ? view.question : ctx.t("tab.title"))
+
+  const title = (view: BtwTabView) =>
+    view.status === "ready" && view.question ? view.question : ctx.t("tab.title")
 
   // Drops the tab objects and chats of sessions whose shell tab closed.
   createKeyed(
@@ -52,18 +58,54 @@ const setup: Plugin.Setup<typeof Btw> = (ctx) => {
     }),
   )
 
+  // The side region's + menu offers a fresh side chat.
+  ctx.add(
+    MenuItem,
+    (): MenuItem => ({
+      menu: "session.panel",
+      id: "chat",
+      title: ctx.t("menu.new"),
+      icon: "comment",
+      order: 20,
+      run: () => {
+        const session = sessions.current()
+
+        if (session) btw.openChat(session)
+      },
+    }),
+  )
+
+  // Beside the composer's send button: a smaller icon button opens a side chat.
+  ctx.add(BuiltinSlot, {
+    at: "session.composer.submit",
+    render: (input) => (
+      <Tooltip value={ctx.t("actions.open")} placement="top">
+        <IconButton
+          size="small"
+          variant="ghost-muted"
+          class="me-1"
+          icon={<Icon name="arrow-right" />}
+          aria-label={ctx.t("actions.open")}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => btw.openChat(input.session)}
+        />
+      </Tooltip>
+    ),
+  })
+
   ctx.add(BuiltinPanel, {
     id: "main",
     region: "side",
     transient: true,
     // Layouts saved before plugins store the tab as "btw"; as a panel key it leaves like any unlisted transient tab.
     legacy: { btw: "main" },
-    // One tab per question. A restored tab stays listed but hidden until the session's store loads so restore keeps
-    // it; afterwards a tab without a stored question leaves the strip. A question asked here shows at once.
+    // One tab per side thread. A restored tab stays listed but hidden until the session's store loads so restore
+    // keeps it; afterwards a tab without a stored question leaves the strip. A question asked here shows at once.
     list: (input) => {
       if (input.open.length === 0) return []
 
       const session = input.session
+      // A tab stores its whole thread: the first question and any follow-ups.
       const cache = tabs.get(session.key) ?? new Map<string, PanelTab>()
       tabs.set(session.key, cache)
 
@@ -104,6 +146,11 @@ const setup: Plugin.Setup<typeof Btw> = (ctx) => {
       btw.remove(input.session, input.tab.id)
       tabs.get(input.session.key)?.delete(input.tab.id)
     },
+    // A selected side chat takes the keyboard, except the selection a reload mounts with.
+    focus: (input) => {
+      if (!input.restored) btw.requestFocus(input.session, input.tab.id)
+    },
+    enter: (input) => btw.requestFocus(input.session, input.tab.id),
   })
 }
 

@@ -117,6 +117,11 @@ export interface BuiltinSlotMap extends SlotMap {
    * the composer's form, so a contribution must not submit it.
    */
   readonly "session.composer.controls": SlotMap["session.panel.end"]
+  /**
+   * Controls immediately before the session composer's submit button, after its flexible spacer. Rendered inside the
+   * composer's form, so a contribution must not submit it.
+   */
+  readonly "session.composer.submit": SlotMap["session.panel.end"]
 }
 
 /** A `Slot` that may also fill the slots only built-ins use. */

@@ -10,6 +10,8 @@ export type BtwChatModel = {
 /** One chat as the session store keeps it. */
 export type BtwSavedChat = {
   readonly id: string
+  /** The tab this turn belongs to. Absent on the thread's first question, whose id is the tab id. */
+  readonly thread?: string
   readonly question: string
   readonly answer?: string
   readonly agent?: string
@@ -19,6 +21,7 @@ export type BtwSavedChat = {
 }
 
 type ChatInfo = {
+  readonly thread?: string
   readonly question: string
   readonly created?: number
   readonly agent?: string
@@ -60,6 +63,8 @@ export type BtwEvent =
       readonly type: "chat.asked"
       readonly sessionKey: string
       readonly id: string
+      /** Set on a follow-up: the tab that holds the thread. */
+      readonly thread?: string
       readonly question: string
       readonly created: number
       readonly agent?: string
@@ -100,6 +105,8 @@ export type BtwEffect =
   | {
       readonly type: "persist-question"
       readonly id: string
+      /** Set on a follow-up: the tab that holds the thread. */
+      readonly thread?: string
       readonly question: string
       readonly created: number
       readonly agent?: string
@@ -111,6 +118,8 @@ export type BtwEffect =
       readonly id: string
       readonly attempt: number
       readonly question: string
+      /** The side thread whose earlier turns are replayed with this question. */
+      readonly thread?: string
       readonly timeout: number
     }
   | {
@@ -153,7 +162,14 @@ export function transitionBtw(state: BtwState, event: BtwEvent): BtwTransition {
 
   if (chat?.status !== "running" || chat.attempt !== event.attempt) return next(state)
 
-  const info = { question: chat.question, created: chat.created, agent: chat.agent, model: chat.model }
+  const info = {
+    thread: chat.thread,
+    question: chat.question,
+    created: chat.created,
+    agent: chat.agent,
+    model: chat.model,
+  }
+
   const abort: BtwEffect = { type: "abort", attempt: chat.attempt }
 
   if (event.type === "generate.timed-out") {
@@ -203,12 +219,101 @@ export function btwTabView(
   saved: readonly BtwSavedChat[] | undefined,
   sessionKey: string,
   id: string,
+  opened = false,
 ): BtwTabView {
-  const chat = liveChat(state, sessionKey, id) ?? saved?.find((item) => item.id === id)
+  const thread = btwThreadView(state, saved, sessionKey, id, opened)
 
-  if (chat) return { status: "ready", question: chat.question }
+  if (thread.phase !== "ready") return { status: thread.phase }
+  const first = thread.turns[0]?.view
 
-  return saved ? { status: "missing" } : { status: "loading" }
+  if (!first || first.phase === "loading" || first.phase === "missing") {
+    // An opened thread with no turns yet still lists; its tab shows the plugin's title.
+    return thread.turns.length === 0 ? { status: "ready", question: "" } : { status: "missing" }
+  }
+
+  return { status: "ready", question: first.question }
+}
+
+/** One rendered turn of a side thread. */
+export type BtwTurn = { readonly id: string; readonly view: BtwChatView }
+
+/** A side thread as one tab shows it. */
+export type BtwThreadView =
+  | { readonly phase: "loading" }
+  | { readonly phase: "missing" }
+  | { readonly phase: "ready"; readonly busy: boolean; readonly turns: readonly BtwTurn[] }
+
+/** Whether a turn belongs to the tab: its first question, or one of its follow-ups. */
+export function btwKeepsChat(chat: { readonly id: string; readonly thread?: string }, tabId: string) {
+  return chat.id !== tabId && chat.thread !== tabId
+}
+
+/** What a tab's thread shows. `saved` is the session store's chats, undefined until it loads. */
+export function btwThreadView(
+  state: BtwState,
+  saved: readonly BtwSavedChat[] | undefined,
+  sessionKey: string,
+  tabId: string,
+  opened = false,
+): BtwThreadView {
+  const live = state.status === "active" ? [...(state.sessions.get(sessionKey) ?? [])] : []
+  const running = live.filter(([chatId, chat]) => !btwKeepsChat({ id: chatId, thread: chat.thread }, tabId))
+  const stored = saved?.filter((chat) => !btwKeepsChat(chat, tabId))
+
+  // A restored tab mounts before desktop storage loads; showing a composer then would accept a
+  // follow-up without the thread's earlier turns. An opened chat starts empty by design.
+  if (saved === undefined && running.length === 0 && !opened) return { phase: "loading" }
+  const ids = [...new Set([...(stored ?? []).map((chat) => chat.id), ...running.map(([chatId]) => chatId)])]
+
+  if (ids.length === 0) {
+    return opened ? { phase: "ready", busy: false, turns: [] } : { phase: "missing" }
+  }
+
+  return {
+    phase: "ready",
+    busy: running.some(([, chat]) => chat.status === "running"),
+    turns: ids.map((id) => ({ id, view: btwChatView(state, saved, sessionKey, id) })),
+  }
+}
+
+/** Whether a follow-up may start now: the thread is known and no turn of it runs. */
+export function btwCanFollow(view: BtwThreadView) {
+  return view.phase === "ready" && !view.busy
+}
+
+/** Each side turn replays the whole session context, so only the newest pairs ride along. */
+// shortcut: 8 replayed side turns; add a summary of older turns if side threads grow long.
+export const BTW_HISTORY_TURNS = 8
+
+/** The model answers from the session context it is given; a single generate cannot act on it. */
+export const BTW_INSTRUCTIONS = [
+  "The user is asking a quick side question about the conversation so far.",
+  "Answer directly and concisely in markdown from what you already know.",
+  "Do not call any tools and do not take any actions.",
+].join(" ")
+
+/** The prompt of one side turn: the instructions, the thread's recent pairs, then the question. */
+export function btwPrompt(history: readonly { question: string; answer: string }[], question: string) {
+  const turns = history.slice(-BTW_HISTORY_TURNS)
+
+  if (turns.length === 0) return [BTW_INSTRUCTIONS, question].join("\n\n")
+
+  return [
+    BTW_INSTRUCTIONS,
+    "Side conversation so far:",
+    turns.map((turn) => `Q: ${turn.question} A: ${turn.answer}`).join("\n\n"),
+    `Q: ${question}`,
+  ].join("\n\n")
+}
+
+/** Enter sends; Shift+Enter and an IME's Enter (composing or legacy keyCode 229) do not. */
+export function btwSubmitsOnEnter(event: {
+  readonly key: string
+  readonly shiftKey: boolean
+  readonly isComposing: boolean
+  readonly keyCode: number
+}) {
+  return event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229
 }
 
 /** What a chat's panel shows. `saved` is the session store's chats, undefined until it loads. */
@@ -249,18 +354,23 @@ function asked(state: ActiveState, event: Extract<BtwEvent, { type: "chat.asked"
   if (!question || state.sessions.get(event.sessionKey)?.has(event.id)) return next(state)
   const attempt = state.issued + 1
   const info = { question, created: event.created, agent: event.agent, model: event.model }
+  // The store keeps the thread id on every turn; the persisted effect omits an absent one so older
+  // records keep their exact shape.
+  const persisted = event.thread === undefined ? info : { ...info, thread: event.thread }
 
   return next(
     put({ ...state, issued: attempt }, event.sessionKey, event.id, {
       ...info,
+      thread: event.thread,
       status: "running",
       attempt,
       started: event.created,
     }),
     [
-      { type: "persist-question", id: event.id, ...info },
-      { type: "open-tab", id: event.id },
-      { type: "generate", id: event.id, attempt, question, timeout: BTW_GENERATE_TIMEOUT_MS },
+      { type: "persist-question", id: event.id, ...persisted },
+      // A follow-up's tab is already open; only a first question opens one.
+      ...(event.thread === undefined ? [{ type: "open-tab" as const, id: event.id }] : []),
+      generateEffect(event.id, attempt, question, event.thread),
     ],
   )
 }
@@ -278,32 +388,39 @@ function retried(state: ActiveState, event: Extract<BtwEvent, { type: "chat.retr
       status: "running",
       attempt,
       started: event.now,
+      thread: chat.thread,
       question: chat.question,
       created: chat.created,
       agent: event.agent ?? chat.agent,
       model: event.model ?? chat.model,
     }),
-    [{ type: "generate", id: event.id, attempt, question: chat.question, timeout: BTW_GENERATE_TIMEOUT_MS }],
+    [generateEffect(event.id, attempt, chat.question, chat.thread)],
   )
 }
 
 function removed(state: ActiveState, sessionKey: string, id: string) {
   const chats = state.sessions.get(sessionKey)
-  const chat = chats?.get(id)
   const remove: BtwEffect = { type: "delete-chat", id }
 
-  if (!chats || !chat) return next(state, [remove])
-  const rest = new Map(chats)
-  rest.delete(id)
+  if (!chats) return next(state, [remove])
+  const gone = [...chats].filter(([chatId, chat]) => !btwKeepsChat({ id: chatId, thread: chat.thread }, id))
+
+  if (gone.length === 0) return next(state, [remove])
+  const kept = [...chats].filter(([chatId, chat]) => btwKeepsChat({ id: chatId, thread: chat.thread }, id))
   const sessions = new Map(state.sessions)
 
-  if (rest.size === 0) sessions.delete(sessionKey)
+  if (kept.length === 0) sessions.delete(sessionKey)
 
-  if (rest.size > 0) sessions.set(sessionKey, rest)
+  if (kept.length > 0) sessions.set(sessionKey, new Map(kept))
 
   return next(
     { ...state, sessions },
-    chat.status === "running" ? [{ type: "abort", attempt: chat.attempt }, remove] : [remove],
+    [
+      ...gone.flatMap(([, chat]): BtwEffect[] =>
+        chat.status === "running" ? [{ type: "abort", attempt: chat.attempt }] : [],
+      ),
+      remove,
+    ],
   )
 }
 
@@ -323,6 +440,12 @@ function aborts(chats: ReadonlyMap<string, BtwChat>): BtwEffect[] {
   return [...chats.values()].flatMap((chat): BtwEffect[] =>
     chat.status === "running" ? [{ type: "abort", attempt: chat.attempt }] : [],
   )
+}
+
+function generateEffect(id: string, attempt: number, question: string, thread?: string): BtwEffect {
+  const effect = { type: "generate" as const, id, attempt, question, timeout: BTW_GENERATE_TIMEOUT_MS }
+
+  return thread === undefined ? effect : { ...effect, thread }
 }
 
 function liveChat(state: BtwState, sessionKey: string, id: string) {
