@@ -25,6 +25,7 @@ import {
   cozyProjectKey,
   cozyProjectOrder,
   pageSlice,
+  reorderCozyPins,
   reorderProjectOrder,
   type CozyItem,
   type CozyPartition,
@@ -173,19 +174,21 @@ export function SidebarCozy() {
       ),
   )
 
-  const pinnedOrder = createMemo(() => {
-    const mixed = cozyMixPins({
+  const pinnedBase = createMemo(() =>
+    cozyMixPins({
       stored: normalizeCozyOrder(sessionPins.cozyOrder(), sessionPins.identity),
       pinnedProjects: pinnedProjects(),
       sessions: pinIdentities(),
-    })
+    }),
+  )
 
-    return mixed.map((key) =>
+  const pinnedOrder = createMemo(() =>
+    pinnedBase().map((key) =>
       key.startsWith("p:")
         ? ({ kind: "project", key: key.slice(2) } as const)
         : ({ kind: "session", key: key.slice(2) } as const),
-    )
-  })
+    ),
+  )
 
   const view = createMemo(() =>
     cozyPlacement({
@@ -264,6 +267,14 @@ export function SidebarCozy() {
   const page = <T,>(key: string, items: readonly T[]) => pageSlice(items, limit(key))
   const more = (key: string, total: number) => setViewState("limits", key, Math.min(total, limit(key) + 10))
   const less = (key: string) => setViewState("limits", key, Math.max(10, limit(key) - 10))
+
+  // Rows are keyed by stable strings: a session update rebuilds the view objects, and keying the lists by
+  // those objects would remount every row and reset the drag while the pointer is down.
+  const pinnedKeys = createMemo(() => view().pinned.map(pinKey))
+  const pinnedByKey = createMemo(() => new Map(view().pinned.map((item) => [pinKey(item), item] as const)))
+
+  const recentKeys = createMemo(() => page("recent", view().recent).items.map((session) => session.key))
+  const recentByKey = createMemo(() => new Map(view().recent.map((session) => [session.key, session] as const)))
   const expanded = (project: CozyProject) => !!viewState.projectsById[project.key]
 
   const toggleProject = (project: CozyProject) =>
@@ -309,8 +320,10 @@ export function SidebarCozy() {
   })
 
   const reorderPinned = (initialIndex: number, index: number) => {
-    const visible = view().pinned.map(pinKey)
+    const visible = pinnedKeys()
     const next = arrayMove(visible, initialIndex, index)
+    // Reorder inside the complete mixed order, never by replacing it with a possibly partial view.
+    const cozy = reorderCozyPins(pinnedBase(), visible, next)
 
     const sessions = (keys: readonly string[]) => keys.flatMap((key) => (key.startsWith("s:") ? [key.slice(2)] : []))
 
@@ -320,8 +333,8 @@ export function SidebarCozy() {
     const rawNext = nextSessions.flatMap((key) => rawByIdentity().get(key) ?? [])
 
     if (rawCurrent.length === rawNext.length && !same(rawCurrent, rawNext))
-      sessionPins.reorderWithCozy(rawCurrent, rawNext, next)
-    else sessionPins.setCozyOrder(next)
+      sessionPins.reorderWithCozy(rawCurrent, rawNext, cozy)
+    else sessionPins.setCozyOrder(cozy)
   }
 
   const reorderProjects = (partition: CozyPartition, initialIndex: number, index: number) => {
@@ -343,7 +356,7 @@ export function SidebarCozy() {
   }
 
   const reorderRecent = (initialIndex: number, index: number) => {
-    const visible = page("recent", view().recent).items.map((session) => session.key)
+    const visible = recentKeys()
     const next = arrayMove(visible, initialIndex, index)
     const base = view().recent.map((session) => session.key)
 
@@ -430,6 +443,9 @@ export function SidebarCozy() {
     />
   )
 
+  const pinnedRow = (item: CozyItem) =>
+    item.kind === "project" ? projectRow(item.project) : sessionRow(item.session)
+
   return (
     <div data-slot="sidebar-cozy" class="flex min-h-0 flex-1 flex-col">
       <Show
@@ -475,11 +491,15 @@ export function SidebarCozy() {
                     reorderPinned(source.initialIndex, source.index)
                   }}
                 >
-                  <For each={view().pinned}>
-                    {(item, index) => (
-                      <CozySortable id={pinKey(item)} index={index()}>
-                        {item.kind === "project" ? projectRow(item.project) : sessionRow(item.session)}
-                      </CozySortable>
+                  <For each={pinnedKeys()}>
+                    {(key, index) => (
+                      <Show when={pinnedByKey().get(key)}>
+                        {(item) => (
+                          <CozySortable id={key} index={index()}>
+                            {pinnedRow(item())}
+                          </CozySortable>
+                        )}
+                      </Show>
                     )}
                   </For>
                 </DragDropProvider>
@@ -576,11 +596,15 @@ export function SidebarCozy() {
                     reorderRecent(source.initialIndex, source.index)
                   }}
                 >
-                  <For each={page("recent", view().recent).items}>
-                    {(session, index) => (
-                      <CozySortable id={session.key} index={index()}>
-                        {sessionRow(session)}
-                      </CozySortable>
+                  <For each={recentKeys()}>
+                    {(key, index) => (
+                      <Show when={recentByKey().get(key)}>
+                        {(session) => (
+                          <CozySortable id={key} index={index()}>
+                            {sessionRow(session())}
+                          </CozySortable>
+                        )}
+                      </Show>
                     )}
                   </For>
                 </DragDropProvider>

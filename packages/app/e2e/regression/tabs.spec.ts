@@ -2629,6 +2629,138 @@ test("the Cozy sidebar drags Recent sessions and keeps the order after reload", 
   await expect(rows).toHaveText([/epsilon/, /delta/, /beta/, /alpha/, /gamma/])
 })
 
+test("the Cozy sidebar finishes a Recent drag after another window changes the stored order", async ({ page }) => {
+  const directory = "C:/OpenCode/CozyRecentShift"
+  const spareDirectory = "C:/OpenCode/CozySpare"
+
+  const sessions = [
+    { id: "ses_cozy_shift_a", title: "Shift alpha", time: { created: T0, updated: T0 + 100, recency: T0 + 100 } },
+    { id: "ses_cozy_shift_b", title: "Shift beta", time: { created: T0, updated: T0 + 200, recency: T0 + 200 } },
+    { id: "ses_cozy_shift_c", title: "Shift gamma", time: { created: T0, updated: T0 + 300, recency: T0 + 300 } },
+    { id: "ses_cozy_shift_d", title: "Shift delta", time: { created: T0, updated: T0 + 400, recency: T0 + 400 } },
+    { id: "ses_cozy_shift_e", title: "Shift epsilon", time: { created: T0, updated: T0 + 500, recency: T0 + 500 } },
+  ]
+
+  await mockWorkspace(page, {
+    name: "CozyRecentShift",
+    directory,
+    project: { id: "proj_cozy_recent_shift", vcs: undefined },
+    projects: [
+      project({ id: "proj_cozy_recent_shift", directory, name: "CozyRecentShift", vcs: undefined }),
+      project({ id: "proj_cozy_spare", directory: spareDirectory, name: "CozySpare", vcs: undefined }),
+    ],
+    sessions,
+    seed: {
+      settings: { appearance: { tabLayout: "cozy" } },
+      usedProjects: { local: ["proj_cozy_recent_shift", "proj_cozy_spare"] },
+    },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const recent = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-recent"]')
+  const rows = recent.locator('[data-slot="sidebar-cozy-item"]')
+
+  await expect(rows).toHaveText([/epsilon/, /delta/, /gamma/, /beta/, /alpha/])
+
+  // Pin a project owned by another window first, so removing that slot can be observed during the drag.
+  await sidebar.getByRole("button", { name: "Projects", exact: true }).click()
+  const spare = sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="project"]').filter({ hasText: "CozySpare" })
+
+  await spare.hover()
+  await spare.getByRole("button", { name: "Pin", exact: true }).click()
+
+  const pinned = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-pinned"]')
+  await expect(pinned.getByText("CozySpare", { exact: true })).toBeVisible()
+
+  const from = await rows.filter({ hasText: "Shift gamma" }).boundingBox()
+  const to = await rows.filter({ hasText: "Shift alpha" }).boundingBox()
+
+  if (!from || !to) throw new Error("Missing Recent row bounds")
+  await page.mouse.move(from.x + 30, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(to.x + 30, to.y + to.height / 2, { steps: 12 })
+
+  // Another window clears the stored order while the pointer is down. This removes the pinned project and
+  // rebuilds the view; remounting the Recent rows here would drop dnd-kit's source and lose the release.
+  await page.evaluate(() => {
+    const channel = new BroadcastChannel("opencode.persist:opencode.global.dat:sidebar.recent")
+
+    channel.postMessage({
+      key: "sidebar.recent",
+      newValue: JSON.stringify({ pins: [], cozy: [], recent: [] }),
+      url: location.href,
+    })
+    channel.close()
+  })
+  await expect(pinned.getByText("CozySpare", { exact: true })).toHaveCount(0)
+
+  await page.mouse.up()
+
+  await expect(rows).toHaveText([/epsilon/, /delta/, /beta/, /alpha/, /gamma/])
+  await page.reload()
+  await expect(rows).toHaveText([/epsilon/, /delta/, /beta/, /alpha/, /gamma/])
+})
+
+test("the Cozy sidebar keeps every pin when one is dragged", async ({ page }) => {
+  const titles = ["Pinned zero", "Pinned one", "Pinned two", "Pinned three", "Pinned four"]
+
+  await mockWorkspace(page, {
+    name: "CozyPinnedDrag",
+    project: { vcs: undefined },
+    sessions: titles.map((title, index) => ({
+      id: `ses_cozy_pin_${index}`,
+      title,
+      time: { created: T0, updated: T0 + index, recency: T0 + index },
+    })),
+    seed: { settings: { appearance: { tabLayout: "cozy" } } },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const sessionRows = sidebar.locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+
+  for (const title of titles) {
+    const row = sessionRows.filter({ hasText: title })
+
+    await row.hover()
+    await row.getByRole("button", { name: "Pin", exact: true }).click()
+  }
+
+  const pinned = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-pinned"]')
+  const pinnedRows = pinned.locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+
+  await expect(pinnedRows).toHaveCount(titles.length)
+  await page.reload()
+  await expect(pinnedRows).toHaveCount(titles.length)
+
+  const from = await pinnedRows.filter({ hasText: "Pinned four" }).boundingBox()
+  const to = await pinnedRows.filter({ hasText: "Pinned one" }).boundingBox()
+
+  if (!from || !to) throw new Error("Missing pinned row bounds")
+  await page.mouse.move(from.x + 30, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(to.x + 30, to.y + to.height * 0.25, { steps: 12 })
+  await page.mouse.up()
+
+  await expect(pinnedRows).toHaveText([
+    /Pinned zero/,
+    /Pinned four/,
+    /Pinned one/,
+    /Pinned two/,
+    /Pinned three/,
+  ])
+  await page.reload()
+  await expect(pinnedRows).toHaveCount(titles.length)
+  await expect(pinnedRows).toHaveText([
+    /Pinned zero/,
+    /Pinned four/,
+    /Pinned one/,
+    /Pinned two/,
+    /Pinned three/,
+  ])
+})
+
 test("the Cozy sidebar shows recent sessions on one 28px row", async ({ page }) => {
   await mockWorkspace(page, {
     name: "Cozy",
