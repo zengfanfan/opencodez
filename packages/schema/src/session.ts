@@ -45,7 +45,10 @@ export const Info = Schema.Struct({
   outcome: Schema.Literals(["succeeded", "failed", "interrupted"]).pipe(optional),
   time: Schema.Struct({
     created: DateTimeUtcFromMillis,
+    /** Last session activity: a user prompt, an AI step, shell, compaction end, execution end or revert commit. */
     updated: DateTimeUtcFromMillis,
+    /** Last user prompt. Used to order session lists; falls back to `updated` for rows written by older servers. */
+    recency: DateTimeUtcFromMillis.pipe(optional),
     /** Start of the most recent execution. While it runs, `idle` still holds the previous execution's end. Resuming after a restart starts a new execution. */
     busy: DateTimeUtcFromMillis.pipe(optional),
     /** End of the most recent completed execution. */
@@ -73,7 +76,8 @@ export interface ListAnchor extends Schema.Schema.Type<typeof ListAnchor> {}
 // endpoint's OpenAPI parameters unchanged.
 const ListFilterFields = {
   order: Schema.Literals(["asc", "desc"]).pipe(Schema.optional).annotate({
-    description: "Session order for the first page. Use desc for newest first or asc for oldest first.",
+    description:
+      "Session order for the first page. Sessions sort by the last user prompt, or by archive time when archived. Use desc for newest first or asc for oldest first.",
   }),
   search: Schema.String.pipe(Schema.optional),
   parentID: Schema.Union([

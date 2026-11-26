@@ -93,6 +93,9 @@ const layer = Layer.effect(
             data,
           }
         })
+        // Imported activity keeps the import time; ordering uses the last user prompt the file carries.
+        const lastUserAt = messages.filter((message) => message.type === "user").at(-1)?.time_created
+        const timeRecency = lastUserAt ?? DateTime.toEpochMillis(input.data.info.time.created)
         // Only inline media the import carries becomes blobs, and only its blobs get refs: refs it carried in
         // could otherwise keep or expose blobs it never held. The destination's config is loaded only when needed.
         const split = messages.map((message) => SessionBlob.split(message.data))
@@ -156,6 +159,7 @@ const layer = Layer.effect(
                       tokens_cache_write: input.data.info.tokens.cache.write,
                       time_created: DateTime.toEpochMillis(input.data.info.time.created),
                       time_updated: importedAt,
+                      time_recency: timeRecency,
                       time_busy:
                         input.data.info.time.idle && input.data.info.time.busy
                           ? Math.min(

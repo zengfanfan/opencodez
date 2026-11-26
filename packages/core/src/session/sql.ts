@@ -63,6 +63,12 @@ export const SessionTable = sqliteTable(
       variant?: string
     }>(),
     ...Timestamps,
+    // Session activity is written explicitly; don't let the column refresh itself.
+    time_updated: integer()
+      .notNull()
+      .$default(() => Date.now()),
+    /** Last user prompt. Nullable so rows written by older servers fall back to `time_updated`. */
+    time_recency: integer(),
     time_busy: integer(),
     time_idle: integer(),
     time_viewed: integer(),

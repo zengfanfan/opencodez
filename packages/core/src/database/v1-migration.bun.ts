@@ -166,6 +166,7 @@ type NextSession = {
   readonly model: string | null
   readonly time_created: number
   readonly time_updated: number
+  readonly time_recency: number | null
   readonly time_compacting: number | null
   readonly time_archived: number | null
   readonly time_suspended: number | null
@@ -201,6 +202,7 @@ const NEXT_SESSION_COLUMNS = {
   model: "nullable",
   time_created: "required",
   time_updated: "required",
+  time_recency: "nullable",
   time_compacting: "nullable",
   time_archived: "nullable",
   time_suspended: "nullable",
@@ -718,7 +720,13 @@ export function run(
               )
               yield* tx
                 .update(SessionTable)
-                .set({ ...transformed.session, time_updated: next.time_updated })
+                .set({
+                  ...transformed.session,
+                  time_updated: next.time_updated,
+                  time_recency:
+                    transformed.messages.filter((message) => message.type === "user").at(-1)?.time_created ??
+                    next.time_created,
+                })
                 .where(eq(SessionTable.id, next.id))
                 .run()
               yield* tx
@@ -886,8 +894,8 @@ function importNextDatabase(
                   id, project_id, workspace_id, parent_id, fork_session_id, fork_boundary, slug, directory,
                   path, title, version, share_url, summary_additions, summary_deletions, summary_files,
                   summary_diffs, metadata, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read,
-                  tokens_cache_write, revert, permission, agent, model, time_created, time_updated, time_compacting,
-                  time_archived, time_suspended
+                  tokens_cache_write, revert, permission, agent, model, time_created, time_updated, time_recency,
+                  time_compacting, time_archived, time_suspended
                 ) VALUES (
                   ${session.id}, ${projectID}, ${session.workspace_id}, ${session.parent_id},
                   ${session.fork_session_id}, ${session.fork_boundary}, ${session.slug}, ${session.directory},
@@ -896,7 +904,8 @@ function importNextDatabase(
                   ${session.summary_diffs}, ${session.metadata}, ${session.cost}, ${session.tokens_input},
                   ${session.tokens_output}, ${session.tokens_reasoning}, ${session.tokens_cache_read},
                   ${session.tokens_cache_write}, ${session.revert}, ${session.permission}, ${session.agent},
-                  ${session.model}, ${session.time_created}, ${session.time_updated}, ${session.time_compacting},
+                  ${session.model}, ${session.time_created}, ${session.time_updated},
+                  ${session.time_recency ?? session.time_created}, ${session.time_compacting},
                   ${session.time_archived}, ${session.time_suspended}
                 )
               `)

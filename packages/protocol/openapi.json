@@ -881,7 +881,7 @@
                   "enum": ["asc", "desc"]
                 }
               ],
-              "description": "Session order for the first page. Use desc for newest first or asc for oldest first."
+              "description": "Session order for the first page. Sessions sort by the last user prompt, or by archive time when archived. Use desc for newest first or asc for oldest first."
             },
             "required": false
           },
@@ -1590,6 +1590,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SessionNotFoundErrorEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SessionBusyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionBusyErrorEncoded"
                 }
               }
             }
@@ -16886,9 +16896,61 @@
         "required": ["template"],
         "additionalProperties": false
       },
+      "Config.Compaction.Buffer": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/Config.Compaction.Percent"
+          },
+          {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          {
+            "$ref": "#/components/schemas/Config.Compaction.Tokens"
+          }
+        ],
+        "description": "Room kept free below the model's context window before automatic compaction, as a share of the window from \"1%\" to \"99%\", such as \"20%\" to compact at 80% full. A token count is also accepted, including K/M forms such as \"128K\" or \"1.5M\"."
+      },
+      "Config.Compaction.ModelKey": {
+        "type": "string",
+        "pattern": "^[^/#]+\\/[^#]+$"
+      },
+      "Config.Compaction.OverrideEncoded": {
+        "type": "object",
+        "properties": {
+          "buffer": {
+            "$ref": "#/components/schemas/Config.Compaction.Buffer"
+          },
+          "threshold": {
+            "$ref": "#/components/schemas/Config.Compaction.Threshold"
+          }
+        },
+        "additionalProperties": false
+      },
       "Config.Compaction.Percent": {
         "type": "string",
         "pattern": "^([1-9]\\d?(\\.\\d+)?)%$"
+      },
+      "Config.Compaction.Threshold": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/Config.Compaction.Percent"
+          },
+          {
+            "type": "integer",
+            "maximum": 9007199254740991,
+            "exclusiveMinimum": 0
+          },
+          {
+            "$ref": "#/components/schemas/Config.Compaction.Tokens"
+          }
+        ],
+        "description": "Compact once the conversation uses this share of the model's input window, from \"1%\" to \"99%\", such as \"85%\". A token count is also accepted, including K/M forms such as \"700K\" or \"1.5M\". Set this or buffer; this wins when both are set."
+      },
+      "Config.Compaction.Tokens": {
+        "type": "string",
+        "pattern": "^\\d+(?:\\.\\d+)?[KkMm]$"
       },
       "Config.DirectoryEncoded": {
         "type": "object",
@@ -17208,7 +17270,8 @@
                 "type": "boolean"
               },
               "background": {
-                "type": "boolean"
+                "type": "boolean",
+                "description": "Write the summary in the background as the session nears automatic compaction, so it does not wait for one (default: true). A summary that is never used still costs tokens."
               },
               "keep": {
                 "type": "object",
@@ -17222,16 +17285,20 @@
                 "additionalProperties": false
               },
               "buffer": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/Config.Compaction.Percent"
-                  },
-                  {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
+                "$ref": "#/components/schemas/Config.Compaction.Buffer"
+              },
+              "threshold": {
+                "$ref": "#/components/schemas/Config.Compaction.Threshold"
+              },
+              "models": {
+                "type": "object",
+                "patternProperties": {
+                  "^[^/#]+\\/[^#]+$": {
+                    "$ref": "#/components/schemas/Config.Compaction.OverrideEncoded"
                   }
-                ]
+                },
+                "additionalProperties": false,
+                "description": "Per-model buffer or threshold overrides keyed by provider/model. Unlisted models use the top-level values."
               }
             },
             "additionalProperties": false
@@ -23843,6 +23910,9 @@
                 "type": "number"
               },
               "updated": {
+                "type": "number"
+              },
+              "recency": {
                 "type": "number"
               },
               "busy": {

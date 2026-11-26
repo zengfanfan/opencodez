@@ -445,19 +445,25 @@ const layer = Layer.effect(
         const data = yield* store.list({ ...filter, limit: input.limit ?? DefaultListLimit })
         const first = data[0]
         const last = data.at(-1)
+        // The anchor must use the same field as SessionStore.list: archived rows sort by archive time,
+        // everything else by the last user prompt (falling back to the last activity for old rows).
+        const anchorTime = (row: SessionSchema.Info) =>
+          filter.archived === true
+            ? DateTime.toEpochMillis(row.time.archived ?? row.time.created)
+            : DateTime.toEpochMillis(row.time.recency ?? row.time.updated)
         return {
           data,
           cursor: {
             previous: first
               ? ListCursor.make({
                   ...filter,
-                  anchor: { id: first.id, time: DateTime.toEpochMillis(first.time.updated), direction: "previous" },
+                  anchor: { id: first.id, time: anchorTime(first), direction: "previous" },
                 })
               : undefined,
             next: last
               ? ListCursor.make({
                   ...filter,
-                  anchor: { id: last.id, time: DateTime.toEpochMillis(last.time.updated), direction: "next" },
+                  anchor: { id: last.id, time: anchorTime(last), direction: "next" },
                 })
               : undefined,
           },

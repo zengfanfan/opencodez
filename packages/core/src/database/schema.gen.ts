@@ -278,6 +278,7 @@ const schema: Omit<DatabaseMigration.Migration, "id"> = {
           \`model\` text,
           \`time_created\` integer NOT NULL,
           \`time_updated\` integer NOT NULL,
+          \`time_recency\` integer,
           \`time_busy\` integer,
           \`time_idle\` integer,
           \`time_viewed\` integer,

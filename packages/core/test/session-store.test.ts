@@ -8,7 +8,7 @@ import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { ProjectTable } from "@opencode/core/project/sql"
 import { SessionProjector } from "@opencode/core/session/projector"
 import { SessionHistory } from "@opencode/core/session/history"
-import { SessionMessageTable, SessionPartTable } from "@opencode/core/session/sql"
+import { SessionMessageTable, SessionPartTable, SessionTable } from "@opencode/core/session/sql"
 import { SessionStore } from "@opencode/core/session/store"
 import { Agent } from "@opencode/schema/agent"
 import { Document, Info } from "@opencode/schema/config"
@@ -60,6 +60,12 @@ const seedSessions = (rows: { id: string; updated: number; title?: string }[]) =
           type: Bus.versionedType(SessionEvent.Renamed.type, 1),
           data: { sessionID, title: row.title ?? row.id },
         })
+        // Ordering is not advanced by a rename anymore, so seed the times directly.
+        yield* database.db
+          .update(SessionTable)
+          .set({ time_updated: row.updated, time_recency: row.updated })
+          .where(eq(SessionTable.id, sessionID))
+          .run()
       }),
     )
     return bus

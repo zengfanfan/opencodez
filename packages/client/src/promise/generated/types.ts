@@ -378,6 +378,10 @@ export type McpProtocol = "legacy" | "auto" | "2026-07-28"
 
 export type ConfigCompactionPercent = string
 
+export type ConfigCompactionTokens = string
+
+export type ConfigCompactionModelKey = string
+
 export type ConfigWorktree = { directory: string }
 
 export type ConfigModelReasoning =
@@ -1010,6 +1014,10 @@ export type VcsInfo = { provider?: string; branch: VcsBranch }
 export type WebSearchProvider = { id: WebSearchID; name: string }
 
 export type UsageLimitsGo = { rolling: UsageLimitsMeter; weekly: UsageLimitsMeter; monthly: UsageLimitsMeter }
+
+export type ConfigCompactionBuffer = ConfigCompactionPercent | number | ConfigCompactionTokens
+
+export type ConfigCompactionThreshold = ConfigCompactionPercent | number | ConfigCompactionTokens
 
 export type ConfigModelCapabilities = {
   tools?: boolean
@@ -2393,7 +2401,15 @@ export type SessionInfo = {
   cost: MoneyUSD
   tokens: TokenUsageInfo
   outcome?: "succeeded" | "failed" | "interrupted"
-  time: { created: number; updated: number; busy?: number; idle?: number; viewed?: number; archived?: number }
+  time: {
+    created: number
+    updated: number
+    recency?: number
+    busy?: number
+    idle?: number
+    viewed?: number
+    archived?: number
+  }
   title?: string
   subpath?: RelativePath
   metadata?: SessionMetadata
@@ -2547,7 +2563,11 @@ export type ConfigEntry =
           auto?: boolean
           background?: boolean
           keep?: { tokens?: number }
-          buffer?: ConfigCompactionPercent | number
+          buffer?: ConfigCompactionBuffer
+          threshold?: ConfigCompactionThreshold
+          models?: {
+            [x: ConfigCompactionModelKey]: { buffer?: ConfigCompactionBuffer; threshold?: ConfigCompactionThreshold }
+          }
         }
         skills?: Array<string>
         commands?: {
@@ -3925,6 +3945,7 @@ export type ExperimentalSessionImportInput = {
     readonly time: {
       readonly created: number
       readonly updated: number
+      readonly recency?: number
       readonly busy?: number
       readonly idle?: number
       readonly viewed?: number

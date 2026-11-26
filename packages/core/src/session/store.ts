@@ -153,7 +153,10 @@ const layer = Layer.effect(
         const direction = input.anchor?.direction ?? "next"
         const requestedOrder = input.order ?? "desc"
         const order = direction === "previous" ? (requestedOrder === "asc" ? "desc" : "asc") : requestedOrder
-        const sortColumn = SessionTable.time_updated
+        const sortColumn =
+          input.archived === true
+            ? sql<number>`${SessionTable.time_archived}`
+            : sql<number>`coalesce(${SessionTable.time_recency}, ${SessionTable.time_updated}, ${SessionTable.time_created})`
         const conditions: SQL[] = []
         if ("directory" in input) conditions.push(eq(SessionTable.directory, input.directory))
         if (input.workspaceID) conditions.push(eq(SessionTable.workspace_id, input.workspaceID))
@@ -251,11 +254,10 @@ const layer = Layer.effect(
       claim: Effect.fn("SessionStore.claim")(function* (sessionID) {
         // The null guard makes re-claiming a still-claimed Session a zero-row
         // no-op (a resumed turn re-claims through the same started hook).
-        // Claim bookkeeping never counts as user activity: time_updated is
-        // pinned so session ordering only moves on real changes.
+        // Claim bookkeeping never counts as user activity.
         yield* db
           .update(SessionTable)
-          .set({ time_suspended: Date.now(), time_updated: sql`${SessionTable.time_updated}` })
+          .set({ time_suspended: Date.now() })
           .where(and(eq(SessionTable.id, sessionID), isNull(SessionTable.time_suspended)))
           .run()
           .pipe(Effect.orDie)
@@ -263,7 +265,7 @@ const layer = Layer.effect(
       release: Effect.fn("SessionStore.release")(function* (sessionID) {
         yield* db
           .update(SessionTable)
-          .set({ time_suspended: null, resume_attempts: 0, time_updated: sql`${SessionTable.time_updated}` })
+          .set({ time_suspended: null, resume_attempts: 0 })
           .where(eq(SessionTable.id, sessionID))
           .run()
           .pipe(Effect.orDie)
@@ -271,7 +273,7 @@ const layer = Layer.effect(
       releaseOrphanedChildClaims: Effect.fn("SessionStore.releaseOrphanedChildClaims")(() =>
         db
           .update(SessionTable)
-          .set({ time_suspended: null, resume_attempts: 0, time_updated: sql`${SessionTable.time_updated}` })
+          .set({ time_suspended: null, resume_attempts: 0 })
           .where(
             and(
               isNotNull(SessionTable.time_suspended),
@@ -286,7 +288,6 @@ const layer = Layer.effect(
           .update(SessionTable)
           .set({
             resume_attempts: sql`${SessionTable.resume_attempts} + 1`,
-            time_updated: sql`${SessionTable.time_updated}`,
           })
           .where(eq(SessionTable.id, sessionID))
           .returning({ attempts: SessionTable.resume_attempts })

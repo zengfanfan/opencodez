@@ -119,6 +119,8 @@ const seedSession = (overrides?: Partial<typeof SessionTable.$inferInsert>) =>
         directory: "/project",
         title: "test",
         version: "test",
+        time_created: DateTime.toEpochMillis(created),
+        time_updated: DateTime.toEpochMillis(created),
         ...overrides,
       })
       .run()
@@ -638,11 +640,65 @@ describe("SessionProjector", () => {
 
       yield* TestClock.setTime(40)
       yield* bus.publish(SessionEvent.Execution.Succeeded, { sessionID })
-      expect(yield* times()).toEqual({ busy: 30, idle: 40, updated: 0 })
+      expect(yield* times()).toEqual({ busy: 30, idle: 40, updated: 40 })
 
       yield* TestClock.setTime(50)
       yield* bus.publish(SessionEvent.Execution.Started, { sessionID })
-      expect(yield* times()).toEqual({ busy: 50, idle: 40, updated: 0 })
+      expect(yield* times()).toEqual({ busy: 50, idle: 40, updated: 40 })
+    }),
+  )
+
+  it.effect("records activity and the last user prompt on separate clocks", () =>
+    Effect.gen(function* () {
+      const db = yield* seedSession()
+      const bus = yield* Bus.Service
+      const inbox = yield* SessionInbox.Service
+      const times = () =>
+        db
+          .select({ updated: SessionTable.time_updated, recency: SessionTable.time_recency })
+          .from(SessionTable)
+          .get()
+          .pipe(Effect.orDie)
+
+      yield* TestClock.setTime(10)
+      yield* bus.publish(SessionEvent.Renamed, { sessionID, title: "renamed" })
+      yield* bus.publish(SessionEvent.MetadataUpdated, { sessionID, metadata: {} })
+      yield* bus.publish(SessionEvent.Viewed, { sessionID, idle: 0 })
+      yield* bus.publish(SessionEvent.RevertEvent.Cleared, { sessionID })
+      expect(yield* times()).toEqual({ updated: 0, recency: null })
+
+      yield* TestClock.setTime(20)
+      yield* inbox.admit({
+        id: SessionMessage.ID.make("msg_recency_user"),
+        sessionID,
+        item: { type: "user", payload: { text: "hello" }, delivery: "queue" },
+      })
+      expect(yield* times()).toEqual({ updated: 20, recency: 20 })
+
+      yield* TestClock.setTime(30)
+      yield* inbox.admit({
+        id: SessionMessage.ID.make("msg_recency_synthetic"),
+        sessionID,
+        item: { type: "synthetic", payload: { text: "context" }, delivery: "queue" },
+      })
+      expect(yield* times()).toEqual({ updated: 30, recency: 20 })
+
+      // A move control is not activity either.
+      yield* TestClock.setTime(40)
+      yield* inbox.admit({
+        id: SessionMessage.ID.make("msg_recency_move"),
+        sessionID,
+        item: {
+          type: "move",
+          payload: { location: { directory: AbsolutePath.make("/other") }, projectID: Project.ID.global },
+          delivery: "queue",
+        },
+      })
+      expect(yield* times()).toEqual({ updated: 30, recency: 20 })
+
+      // The column no longer refreshes itself on a plain update.
+      yield* db.update(SessionTable).set({ title: "direct" }).where(eq(SessionTable.id, sessionID)).run()
+      expect(yield* times()).toEqual({ updated: 30, recency: 20 })
     }),
   )
 

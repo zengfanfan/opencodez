@@ -534,18 +534,18 @@ describe("Session.create", () => {
       yield* Effect.forEach(children, (item, index) =>
         db
           .update(SessionTable)
-          .set({ time_created: index + 100, time_updated: index + 20_000 })
+          .set({ time_created: index + 100, time_updated: index + 20_000, time_recency: index + 20_000 })
           .where(eq(SessionTable.id, item.id))
           .run(),
       )
       yield* db
         .update(SessionTable)
-        .set({ time_created: 2, time_updated: 5_000 })
+        .set({ time_created: 2, time_updated: 5_000, time_recency: 5_000 })
         .where(eq(SessionTable.id, staleRoot.id))
         .run()
       yield* db
         .update(SessionTable)
-        .set({ time_created: 1, time_updated: 10_000 })
+        .set({ time_created: 1, time_updated: 10_000, time_recency: 10_000 })
         .where(eq(SessionTable.id, root.id))
         .run()
 

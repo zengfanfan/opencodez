@@ -84,7 +84,9 @@ function applyUsage(db: DatabaseService, sessionID: SessionSchema.ID, value: Usa
 }
 
 function touch(db: DatabaseService, event: MessageEvent) {
-  return setSession(db, event.data.sessionID, { time_updated: event.created })
+  return setSession(db, event.data.sessionID, {
+    time_updated: sql`max(${event.created}, ${SessionTable.time_updated})`,
+  })
 }
 
 const publishSessionUsage = Effect.fn("SessionProjector.publishUsage")(function* (
@@ -185,6 +187,7 @@ const projectFork = Effect.fn("SessionProjector.projectFork")(function* (
       tokens_cache_write: 0,
       time_created: event.created,
       time_updated: event.created,
+      time_recency: event.created,
     })
     .onConflictDoNothing()
     .returning({ sessionID: SessionTable.id })
@@ -856,7 +859,7 @@ function projectIdle(
       // Unread uses a strict timestamp comparison, so every terminal must advance even within one millisecond.
       time_idle: sql`max(${time}, coalesce(${SessionTable.time_idle} + 1, ${time}))`,
       idle_outcome: outcome,
-      time_updated: sql`${SessionTable.time_updated}`,
+      time_updated: sql`max(${time}, ${SessionTable.time_updated})`,
     })
   })
 }
@@ -885,6 +888,7 @@ const layer = Layer.effectDiscard(
             version: event.data.version,
             time_created: event.created,
             time_updated: event.created,
+            time_recency: event.created,
           })
           .onConflictDoNothing()
           .returning({ sessionID: SessionTable.id })
@@ -901,7 +905,6 @@ const layer = Layer.effectDiscard(
           path: event.data.subpath,
           ...(event.data.projectID ? { project_id: event.data.projectID } : {}),
           workspace_id: event.data.location.workspaceID ?? null,
-          time_updated: event.created,
         })
       }),
     )
@@ -952,8 +955,6 @@ const layer = Layer.effectDiscard(
             return setSession(db, row.id, {
               project_id: event.data.projectID,
               path: RelativePath.make(path.relative(event.data.directory, directory).replaceAll("\\", "/")),
-              // Self-assignment suppresses the column's $onUpdate: adoption is not activity.
-              time_updated: sql`${SessionTable.time_updated}`,
             })
           },
           { discard: true },
@@ -969,23 +970,23 @@ const layer = Layer.effectDiscard(
     yield* bus.project(SessionEvent.AgentSelected, (event) =>
       Effect.gen(function* () {
         yield* run(db, event)
-        yield* setSession(db, event.data.sessionID, { agent: event.data.agent, time_updated: event.created })
+        yield* setSession(db, event.data.sessionID, { agent: event.data.agent })
       }),
     )
     yield* bus.project(SessionEvent.ModelSelected, (event) =>
       Effect.gen(function* () {
         yield* run(db, event)
-        yield* setSession(db, event.data.sessionID, { model: event.data.model, time_updated: event.created })
+        yield* setSession(db, event.data.sessionID, { model: event.data.model })
       }),
     )
     yield* bus.project(SessionEvent.Renamed, (event) =>
-      setSession(db, event.data.sessionID, { title: event.data.title, time_updated: event.created }),
+      setSession(db, event.data.sessionID, { title: event.data.title }),
     )
     yield* bus.project(SessionEvent.MetadataUpdated, (event) =>
-      setSession(db, event.data.sessionID, { metadata: event.data.metadata, time_updated: event.created }),
+      setSession(db, event.data.sessionID, { metadata: event.data.metadata }),
     )
     yield* bus.project(SessionEvent.Permissions, (event) =>
-      setSession(db, event.data.sessionID, { permission: event.data.permissions, time_updated: event.created }),
+      setSession(db, event.data.sessionID, { permission: event.data.permissions }),
     )
     yield* bus.project(SessionEvent.Viewed, (event) => {
       const idle = event.data.idle
@@ -993,14 +994,13 @@ const layer = Layer.effectDiscard(
         // Monotone watermark: a duplicate or stale view never regresses, and a terminal event
         // committing after the viewer's observation keeps the newer idle transition unread.
         time_viewed: sql`max(${idle}, coalesce(${SessionTable.time_viewed}, ${idle}))`,
-        time_updated: sql`${SessionTable.time_updated}`,
       })
     })
     yield* bus.project(SessionEvent.Archived, (event) =>
-      setSession(db, event.data.sessionID, { time_archived: event.created, time_updated: event.created }),
+      setSession(db, event.data.sessionID, { time_archived: event.created }),
     )
     yield* bus.project(SessionEvent.Unarchived, (event) =>
-      setSession(db, event.data.sessionID, { time_archived: null, time_updated: event.created }),
+      setSession(db, event.data.sessionID, { time_archived: null }),
     )
     yield* bus.project(SessionEvent.MessageContentUpdated, (event) => run(db, event))
     yield* bus.project(SessionEvent.UsageRecorded, (event) => applyUsage(db, event.data.sessionID, event.data))
@@ -1043,7 +1043,14 @@ const layer = Layer.effectDiscard(
           item: event.data.item,
           timeCreated: event.created,
         })
-        yield* touch(db, event)
+        // A move control is not user activity.
+        if (event.data.item.type === "move") return
+        yield* setSession(db, event.data.sessionID, {
+          time_updated: sql`max(${event.created}, ${SessionTable.time_updated})`,
+          ...(event.data.item.type === "user"
+            ? { time_recency: sql`max(${event.created}, coalesce(${SessionTable.time_recency}, 0))` }
+            : {}),
+        })
       }),
     )
     yield* bus.project(SessionEvent.InboxCancelled, (event) =>
@@ -1060,10 +1067,7 @@ const layer = Layer.effectDiscard(
       }),
     )
     yield* bus.project(SessionEvent.Execution.Started, (event) =>
-      setSession(db, event.data.sessionID, {
-        time_busy: event.created,
-        time_updated: sql`${SessionTable.time_updated}`,
-      }),
+      setSession(db, event.data.sessionID, { time_busy: event.created }),
     )
     yield* bus.project(SessionEvent.Execution.Succeeded, (event) => projectIdle(db, event))
     yield* bus.project(SessionEvent.Execution.Failed, (event) => projectIdle(db, event))
@@ -1076,8 +1080,18 @@ const layer = Layer.effectDiscard(
     )
     yield* bus.project(SessionEvent.Synthetic, (event) => run(db, event))
     yield* bus.project(SessionEvent.Skill.Activated, (event) => run(db, event))
-    yield* bus.project(SessionEvent.Shell.Started, (event) => run(db, event))
-    yield* bus.project(SessionEvent.Shell.Ended, (event) => run(db, event))
+    yield* bus.project(SessionEvent.Shell.Started, (event) =>
+      Effect.gen(function* () {
+        yield* run(db, event)
+        yield* touch(db, event)
+      }),
+    )
+    yield* bus.project(SessionEvent.Shell.Ended, (event) =>
+      Effect.gen(function* () {
+        yield* run(db, event)
+        yield* touch(db, event)
+      }),
+    )
     yield* bus.project(SessionEvent.Step.Started, (event) =>
       Effect.gen(function* () {
         yield* run(db, event)
@@ -1120,14 +1134,20 @@ const layer = Layer.effectDiscard(
       Effect.gen(function* () {
         yield* run(db, event)
         yield* InstructionState.advanceEpoch(db, event.data.sessionID, event.durable.seq)
+        yield* touch(db, event)
       }),
     )
-    yield* bus.project(SessionEvent.Compaction.Failed, (event) => run(db, event))
+    yield* bus.project(SessionEvent.Compaction.Failed, (event) =>
+      Effect.gen(function* () {
+        yield* run(db, event)
+        yield* touch(db, event)
+      }),
+    )
     yield* bus.project(SessionEvent.RevertEvent.Staged, (event) =>
-      setSession(db, event.data.sessionID, { revert: event.data.revert, time_updated: event.created }),
+      setSession(db, event.data.sessionID, { revert: event.data.revert }),
     )
     yield* bus.project(SessionEvent.RevertEvent.Cleared, (event) =>
-      setSession(db, event.data.sessionID, { revert: null, time_updated: event.created }),
+      setSession(db, event.data.sessionID, { revert: null }),
     )
     yield* bus.project(SessionEvent.RevertEvent.Committed, (event) =>
       Effect.gen(function* () {
@@ -1157,7 +1177,10 @@ const layer = Layer.effectDiscard(
           )
           .run()
           .pipe(Effect.orDie)
-        yield* setSession(db, event.data.sessionID, { revert: null, time_updated: event.created })
+        yield* setSession(db, event.data.sessionID, {
+          revert: null,
+          time_updated: sql`max(${event.created}, ${SessionTable.time_updated})`,
+        })
         yield* InstructionState.rewind(db, event.data.sessionID, boundary.seq)
         yield* SessionBlob.releaseFrom(db, event.data.sessionID, boundary.seq)
       }),

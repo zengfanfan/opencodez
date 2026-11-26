@@ -27,6 +27,7 @@ import scheduleChecksMigration from "@opencode/core/database/migration/202610291
 import automationMigration from "@opencode/core/database/migration/20261116043204_automation"
 import automationEventPosition from "@opencode/core/database/migration/20261116181958_automation_event_position"
 import automationActiveIndex from "@opencode/core/database/migration/20261116213417_automation_active_index"
+import sessionRecencyMigration from "@opencode/core/database/migration/20261126141320_amusing_imperial_guard"
 import { Global } from "@opencode/util/global"
 
 const run = <A, E>(
@@ -777,6 +778,52 @@ describe("DatabaseMigration", () => {
         yield* db.run(sql`UPDATE __drizzle_migrations SET name = 'ignored'`)
         yield* DatabaseMigration.applyOnly(db, [])
         expect(yield* db.all(sql`SELECT id FROM migration ORDER BY id`)).toEqual([{ id: "existing" }, { id: "legacy" }])
+      }),
+    )
+  })
+
+  test("backfills session activity and recency from messages and pending inbox", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(
+          sql`CREATE TABLE session_v2 (id text PRIMARY KEY, time_created integer NOT NULL, time_updated integer NOT NULL, time_idle integer)`,
+        )
+        yield* db.run(
+          sql`CREATE TABLE session_message (session_id text NOT NULL, seq integer NOT NULL, type text NOT NULL, time_created integer NOT NULL, time_updated integer NOT NULL)`,
+        )
+        yield* db.run(
+          sql`CREATE TABLE session_inbox (session_id text NOT NULL, type text NOT NULL, time_created integer NOT NULL)`,
+        )
+        yield* db.run(sql`
+          INSERT INTO session_v2 (id, time_created, time_updated, time_idle) VALUES
+            ('ses_empty', 5, 100, NULL),
+            ('ses_user', 10, 500, 90),
+            ('ses_assistant', 40, 800, NULL),
+            ('ses_pending_move', 20, 600, NULL),
+            ('ses_pending_user', 30, 700, NULL)
+        `)
+        yield* db.run(sql`
+          INSERT INTO session_message (session_id, seq, type, time_created, time_updated) VALUES
+            ('ses_user', 1, 'user', 300, 320),
+            ('ses_user', 2, 'assistant', 400, 450),
+            ('ses_assistant', 1, 'assistant', 850, 860)
+        `)
+        yield* db.run(sql`
+          INSERT INTO session_inbox (session_id, type, time_created) VALUES
+            ('ses_pending_move', 'move', 700),
+            ('ses_pending_user', 'user', 800)
+        `)
+
+        yield* DatabaseMigration.applyOnly(db, [sessionRecencyMigration])
+
+        expect(yield* db.all(sql`SELECT id, time_updated, time_recency FROM session_v2 ORDER BY id`)).toEqual([
+          { id: "ses_assistant", time_updated: 860, time_recency: 40 },
+          { id: "ses_empty", time_updated: 5, time_recency: 5 },
+          { id: "ses_pending_move", time_updated: 20, time_recency: 20 },
+          { id: "ses_pending_user", time_updated: 800, time_recency: 800 },
+          { id: "ses_user", time_updated: 450, time_recency: 300 },
+        ])
       }),
     )
   })
