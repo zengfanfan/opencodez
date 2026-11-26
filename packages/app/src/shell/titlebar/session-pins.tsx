@@ -13,7 +13,9 @@ import {
 } from "./recent-sessions-model"
 import {
   applyUnpin,
+  moveRecentToFront,
   normalizeCozyOrder,
+  normalizeRecentOrder,
   PinsState,
   withCozyPin,
   withoutCozyPin,
@@ -31,7 +33,7 @@ export function createSessionPins() {
   const [state, setState, , ready] = persisted(
     { ...Persist.global("sidebar.recent"), sync: true },
     PinsState,
-    { pins: [], cozy: [] },
+    { pins: [], cozy: [], recent: [] },
   )
 
   const endpoints = createMemo(() => recentSessionEndpoints(servers.list, servers.ownUrl()))
@@ -56,11 +58,15 @@ export function createSessionPins() {
 
     const pins = dedupePins(state.pins)
     const cozy = normalizeCozyOrder(state.cozy ?? [], identity)
+    const recent = normalizeRecentOrder(state.recent ?? [], identity)
 
     const pinsChanged = pins.length !== state.pins.length || pins.some((key, index) => key !== state.pins[index])
     const cozyChanged = cozy.length !== (state.cozy?.length ?? 0) || cozy.some((key, index) => key !== state.cozy?.[index])
 
-    if (pinsChanged || cozyChanged) setState({ pins, cozy })
+    const recentChanged =
+      recent.length !== (state.recent?.length ?? 0) || recent.some((key, index) => key !== state.recent?.[index])
+
+    if (pinsChanged || cozyChanged || recentChanged) setState({ pins, cozy, recent })
   })
 
   const unpin = (server: string, sessionID: string) => {
@@ -108,6 +114,10 @@ export function createSessionPins() {
       }),
     cozyOrder: () => state.cozy ?? [],
     setCozyOrder: (next: readonly string[]) => setState("cozy", [...next]),
+    recentOrder: () => state.recent ?? [],
+    setRecentOrder: (next: readonly string[]) => setState("recent", [...next]),
+    moveRecentToFront: (keys: readonly string[]) =>
+      setState("recent", (current) => moveRecentToFront(current ?? [], keys)),
     appendCozy: (key: string) => setState("cozy", (current) => withCozyPin(current, key)),
     removeCozy: (key: string) => setState("cozy", (current) => withoutCozyPin(current, key)),
     /** Pins a session with its Cozy slot in one write; unpinning goes through `unpin`. */

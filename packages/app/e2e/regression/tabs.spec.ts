@@ -2592,6 +2592,43 @@ test("the Cozy sidebar shows the last activity, not the last user prompt", async
   await expect(page.getByRole("tooltip")).toContainText(/4d ago/)
 })
 
+test("the Cozy sidebar drags Recent sessions and keeps the order after reload", async ({ page }) => {
+  await mockWorkspace(page, {
+    name: "CozyRecentDrag",
+    project: { vcs: undefined },
+    sessions: [
+      { id: "ses_cozy_recent_a", title: "Recent alpha", time: { created: T0, updated: T0 + 100, recency: T0 + 100 } },
+      { id: "ses_cozy_recent_b", title: "Recent beta", time: { created: T0, updated: T0 + 200, recency: T0 + 200 } },
+      { id: "ses_cozy_recent_c", title: "Recent gamma", time: { created: T0, updated: T0 + 300, recency: T0 + 300 } },
+      { id: "ses_cozy_recent_d", title: "Recent delta", time: { created: T0, updated: T0 + 400, recency: T0 + 400 } },
+      { id: "ses_cozy_recent_e", title: "Recent epsilon", time: { created: T0, updated: T0 + 500, recency: T0 + 500 } },
+    ],
+    seed: { settings: { appearance: { tabLayout: "cozy" } } },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const recent = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-recent"]')
+  const rows = recent.locator('[data-slot="sidebar-cozy-item"]')
+  const gamma = rows.filter({ hasText: "Recent gamma" })
+  const alpha = rows.filter({ hasText: "Recent alpha" })
+
+  await expect(rows).toHaveText([/epsilon/, /delta/, /gamma/, /beta/, /alpha/])
+
+  const from = await gamma.boundingBox()
+  const to = await alpha.boundingBox()
+
+  if (!from || !to) throw new Error("Missing Recent row bounds")
+  await page.mouse.move(from.x + 30, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(to.x + 30, to.y + to.height / 2, { steps: 12 })
+  await page.mouse.up()
+
+  await expect(rows).toHaveText([/epsilon/, /delta/, /beta/, /alpha/, /gamma/])
+  await page.reload()
+  await expect(rows).toHaveText([/epsilon/, /delta/, /beta/, /alpha/, /gamma/])
+})
+
 test("the Cozy sidebar shows recent sessions on one 28px row", async ({ page }) => {
   await mockWorkspace(page, {
     name: "Cozy",

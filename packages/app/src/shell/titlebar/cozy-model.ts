@@ -65,6 +65,42 @@ function compareSessions(a: CozySession, b: CozySession) {
   return a.entry.session.id.localeCompare(b.entry.session.id)
 }
 
+/** Stored Recent order first; sessions it does not know yet appear at the top by recency. */
+export function orderRecent(items: readonly CozySession[], order: readonly string[]) {
+  const sorted = [...items].sort(compareSessions)
+  const positions = new Map(order.map((key, index) => [key, index] as const))
+  const fresh = sorted.filter((item) => !positions.has(item.key))
+
+  const kept = sorted
+    .filter((item) => positions.has(item.key))
+    .sort((a, b) => positions.get(a.key)! - positions.get(b.key)!)
+
+  return [...fresh, ...kept]
+}
+
+/**
+ * Sessions that should move to the front: new ones, and known ones whose last user prompt advanced.
+ * Rows without a real recency (older servers) never move on activity alone.
+ */
+export function bumpedRecent(
+  known: ReadonlySet<string>,
+  seen: ReadonlyMap<string, number>,
+  list: readonly { key: string; recency: number | undefined }[],
+) {
+  return list
+    .filter((item) => {
+      if (!known.has(item.key)) return true
+
+      if (item.recency === undefined) return false
+
+      const previous = seen.get(item.key)
+
+      return previous !== undefined && item.recency > previous
+    })
+    .sort((a, b) => (b.recency ?? 0) - (a.recency ?? 0))
+    .map((item) => item.key)
+}
+
 /** Groups sessions into pinned, per-project, and recent lists. */
 export function cozyPlacement(input: {
   entries: readonly InboxEntry[]
@@ -74,6 +110,7 @@ export function cozyPlacement(input: {
   pinnedSessions: ReadonlySet<string>
   pinnedProjects: ReadonlySet<string>
   pinnedOrder: readonly CozyPinnedRef[]
+  recentOrder?: readonly string[]
 }): CozyView {
   const projectsByKey = new Map<CozyProjectKey, CozyProject>(
     input.projects.map((project) => [project.key, { ...project, pinned: false, sessions: [] }]),
@@ -106,8 +143,6 @@ export function cozyPlacement(input: {
     project.sessions.sort(compareSessions)
     project.pinned = input.pinnedProjects.has(project.key)
   }
-
-  recent.sort(compareSessions)
 
   // The stored mixed order decides where projects and sessions sit. Anything missing is appended.
   const ordered: CozyItem[] = []
@@ -157,7 +192,7 @@ export function cozyPlacement(input: {
   return {
     pinned: ordered,
     projects: [...partitions.values()],
-    recent,
+    recent: orderRecent(recent, input.recentOrder ?? []),
     projectsByKey,
   }
 }

@@ -3,7 +3,9 @@ import { Schema } from "effect"
 import { Persistence } from "@/runtime/persistence/schema"
 import {
   applyUnpin,
+  moveRecentToFront,
   normalizeCozyOrder,
+  normalizeRecentOrder,
   PinsState,
   removeCozySessionSlot,
   withCozyPin,
@@ -48,6 +50,30 @@ describe("normalizeCozyOrder", () => {
         identity,
       ),
     ).toEqual(["p:sidecar\u0000C:/work", "s:sidecar\u0000ses_one", "s:other\u0000ses_two"])
+  })
+})
+
+describe("normalizeRecentOrder", () => {
+  test("rewrites endpoint aliases and drops malformed or duplicate identities", () => {
+    expect(
+      normalizeRecentOrder(
+        [
+          "http://127.0.0.1:4096\u0000ses_one",
+          "sidecar\u0000ses_one",
+          "other\u0000ses_two",
+          "bad",
+        ],
+        identity,
+      ),
+    ).toEqual(["sidecar\u0000ses_one", "other\u0000ses_two"])
+  })
+})
+
+describe("moveRecentToFront", () => {
+  test("moves the speaking sessions to the front and keeps the rest", () => {
+    expect(
+      moveRecentToFront(["sidecar\u0000a", "sidecar\u0000b", "sidecar\u0000c"], ["sidecar\u0000c", "sidecar\u0000a"]),
+    ).toEqual(["sidecar\u0000c", "sidecar\u0000a", "sidecar\u0000b"])
   })
 })
 

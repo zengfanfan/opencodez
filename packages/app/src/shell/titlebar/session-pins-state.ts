@@ -8,6 +8,8 @@ export const PinsState = Persistence.struct({
   // Cozy's mixed pin order: `p:` is a pinned project, `s:` is a session slot.
   // Optional so an older `{ pins }` document keeps its sessions.
   cozy: Persistence.optional(Persistence.array(Schema.String)),
+  // Cozy's Recent order, as endpoint-qualified session identities. Optional so older documents start at recency.
+  recent: Persistence.optional(Persistence.array(Schema.String)),
 })
 
 export type PinsState = typeof PinsState.Type
@@ -38,6 +40,30 @@ export function normalizeCozyOrder(stored: readonly string[], identity: PinIdent
 
     return [next]
   })
+}
+
+/** Normalizes stored Recent identities to the current endpoints and drops malformed or duplicate entries. */
+export function normalizeRecentOrder(stored: readonly string[], identity: PinIdentity) {
+  const seen = new Set<string>()
+
+  return stored.flatMap((key) => {
+    const parsed = splitRecentSessionKey(key)
+
+    if (!parsed?.sessionID) return []
+    const next = identity(parsed.server, parsed.sessionID)
+
+    if (seen.has(next)) return []
+    seen.add(next)
+
+    return [next]
+  })
+}
+
+/** Moves the given identities to the front, keeping their order and the rest untouched. */
+export function moveRecentToFront(order: readonly string[], keys: readonly string[]) {
+  const front = new Set(keys)
+
+  return [...keys, ...order.filter((key) => !front.has(key))]
 }
 
 /** Removes one session's slot from the mixed order. Project slots are never touched. */

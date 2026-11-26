@@ -18,6 +18,7 @@ import { homeProjectDirectories } from "@/shell/layout/helpers"
 import { pathKey } from "@/workspaces/path-key"
 import { useDirectoryPicker } from "@/workspaces/selection/picker"
 import {
+  bumpedRecent,
   cozyCleanPins,
   cozyMixPins,
   cozyPlacement,
@@ -195,8 +196,59 @@ export function SidebarCozy() {
       pinnedSessions: new Set(pinIdentities()),
       pinnedProjects: pinnedProjects(),
       pinnedOrder: pinnedOrder(),
+      recentOrder: sessionPins.recentOrder(),
     }),
   )
+
+  const recentEntries = createMemo(() => {
+    const pinned = new Set(pinIdentities())
+    const projectPins = pinnedProjects()
+
+    return entries().flatMap((entry) => {
+      const key = sessionKey(entry)
+
+      if (pinned.has(key)) return []
+      const project = resolveProject(entry)
+
+      if (!project || projectPins.has(project)) return []
+
+      return [{ key, recency: entry.session.time.recency }]
+    })
+  })
+
+  // A new prompt moves that session to the front; every other row keeps the user's dragged order.
+  const knownRecent = new Set<string>()
+  const seenRecent = new Map<string, number>()
+  let recentSeeded = false
+  createEffect(() => {
+    const list = recentEntries()
+
+    if (!sessionPins.ready()) return
+
+    if (!recentSeeded) {
+      if (list.length === 0) return
+
+      for (const item of list) {
+        knownRecent.add(item.key)
+
+        if (item.recency !== undefined) seenRecent.set(item.key, item.recency)
+      }
+
+      recentSeeded = true
+
+      return
+    }
+
+    const front = bumpedRecent(knownRecent, seenRecent, list)
+
+    for (const item of list) {
+      knownRecent.add(item.key)
+
+      if (item.recency !== undefined) seenRecent.set(item.key, item.recency)
+    }
+
+    if (front.length > 0) sessionPins.moveRecentToFront(front)
+  })
 
   // The shared store is authoritative. Normalize aliases and drop session slots for pins that no longer exist, but
   // never before the store has hydrated.
@@ -288,6 +340,14 @@ export function SidebarCozy() {
         next,
       ),
     )
+  }
+
+  const reorderRecent = (initialIndex: number, index: number) => {
+    const visible = page("recent", view().recent).items.map((session) => session.key)
+    const next = arrayMove(visible, initialIndex, index)
+    const base = view().recent.map((session) => session.key)
+
+    sessionPins.setRecentOrder(reorderProjectOrder(base, visible, next))
   }
 
   const visibleSessions = createMemo(() => {
@@ -495,7 +555,35 @@ export function SidebarCozy() {
                 onToggle={() => setViewState("recent", (value: boolean) => !value)}
               />
               <Show when={viewState.recent}>
-                <For each={page("recent", view().recent).items}>{(session) => sessionRow(session)}</For>
+                <DragDropProvider
+                  sensors={[
+                    PointerSensor.configure({
+                      activationConstraints: [new PointerActivationConstraints.Distance({ value: 4 })],
+                      preventActivation: (event) =>
+                        event.target instanceof Element &&
+                        !!event.target.closest("[data-cozy-pin], [data-project-action]"),
+                    }),
+                  ]}
+                  modifiers={[RestrictToVerticalAxis]}
+                  plugins={(defaults) => [
+                    ...defaults.filter((plugin) => plugin !== Accessibility),
+                    Feedback.configure({ dropAnimation: null }),
+                  ]}
+                  onDragEnd={(event) => {
+                    const source = event.operation.source
+
+                    if (event.canceled || !isSortable(source) || source.initialIndex === source.index) return
+                    reorderRecent(source.initialIndex, source.index)
+                  }}
+                >
+                  <For each={page("recent", view().recent).items}>
+                    {(session, index) => (
+                      <CozySortable id={session.key} index={index()}>
+                        {sessionRow(session)}
+                      </CozySortable>
+                    )}
+                  </For>
+                </DragDropProvider>
                 <CozyPager
                   less={page("recent", view().recent).less}
                   more={page("recent", view().recent).more}

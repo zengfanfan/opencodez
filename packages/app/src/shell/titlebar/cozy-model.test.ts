@@ -4,15 +4,18 @@ import type { Project } from "@/runtime/server/types"
 import type { ServerConnection } from "@/runtime/server/registry"
 import type { InboxEntry, InboxStatus } from "./inbox-model"
 import {
+  bumpedRecent,
   cozyCleanPins,
   cozyMixPins,
   cozyPlacement,
   cozyProjectKey,
   cozyProjectOrder,
+  orderRecent,
   pageSlice,
   reorderCozyPins,
   reorderProjectOrder,
   type CozyProjectInfo,
+  type CozySession,
 } from "./cozy-model"
 
 const project = (id: string, worktree: string, created: number, vcs: string | "none" = "git") =>
@@ -117,6 +120,57 @@ describe("cozyPlacement", () => {
 
     expect(view.recent).toHaveLength(0)
     expect(view.projects.flatMap((item) => item.items).flatMap((item) => item.sessions)).toHaveLength(0)
+  })
+})
+
+describe("orderRecent", () => {
+  const sessions = (): CozySession[] =>
+    ["a", "b", "c"].map((id, index) => ({ key: `${"sidecar"}\u0000${id}`, entry: entry(id, 30 - index * 10), pinned: false }))
+
+  test("keeps the stored order and puts sessions it does not know at the top", () => {
+    const items = sessions()
+
+    expect(orderRecent(items, ["sidecar\u0000c", "sidecar\u0000a"]).map((item) => item.entry.session.id)).toEqual([
+      "b",
+      "c",
+      "a",
+    ])
+  })
+
+  test("a stored order wins over recency", () => {
+    const items = sessions()
+
+    expect(orderRecent(items, ["sidecar\u0000a", "sidecar\u0000b", "sidecar\u0000c"]).map((item) => item.entry.session.id)).toEqual([
+      "a",
+      "b",
+      "c",
+    ])
+  })
+})
+
+describe("bumpedRecent", () => {
+  test("returns new and newly prompted sessions, newest first", () => {
+    const known = new Set(["sidecar\u0000a", "sidecar\u0000b"])
+
+    const seen = new Map([
+      ["sidecar\u0000a", 10],
+      ["sidecar\u0000b", 20],
+    ])
+
+    expect(
+      bumpedRecent(known, seen, [
+        { key: "sidecar\u0000a", recency: 10 },
+        { key: "sidecar\u0000b", recency: 30 },
+        { key: "sidecar\u0000c", recency: 25 },
+      ]),
+    ).toEqual(["sidecar\u0000b", "sidecar\u0000c"])
+  })
+
+  test("activity-only rows without a real recency never move", () => {
+    const known = new Set(["sidecar\u0000a"])
+    const seen = new Map<string, number>()
+
+    expect(bumpedRecent(known, seen, [{ key: "sidecar\u0000a", recency: undefined }])).toEqual([])
   })
 })
 
