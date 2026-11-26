@@ -34,7 +34,7 @@ export function rankCommandPaletteEntries(
     (a, b) =>
       typeOrder[a.type] - typeOrder[b.type] ||
       (a.type === "session" && b.type === "session"
-        ? Number(open(b)) - Number(open(a)) || (b.updated ?? 0) - (a.updated ?? 0)
+        ? Number(open(b)) - Number(open(a)) || (b.recency ?? b.updated ?? 0) - (a.recency ?? a.updated ?? 0)
         : 0),
   )
 }

@@ -117,7 +117,9 @@ export function SidebarInbox() {
       .filter((entry) => entry.status === "done" || entry.status === "failed")
       .toSorted((a, b) => (b.since ?? 0) - (a.since ?? 0))
 
-    const read = active.filter((entry) => entry.status === "ready").toSorted((a, b) => (b.since ?? 0) - (a.since ?? 0))
+    const read = active
+      .filter((entry) => entry.status === "ready")
+      .toSorted((a, b) => (b.recency ?? 0) - (a.recency ?? 0))
 
     const recent = state.recentExpanded ? read : read.slice(0, RECENT_LIMIT)
 

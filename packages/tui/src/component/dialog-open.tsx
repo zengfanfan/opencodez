@@ -171,7 +171,7 @@ export function DialogOpen(props: { sessions: SessionInfo[]; onLoad: (sessions: 
       const attentionA = attentionByID.get(a.id) ?? false
       const attentionB = attentionByID.get(b.id) ?? false
       if (attentionA !== attentionB) return attentionA ? -1 : 1
-      return b.time.updated - a.time.updated
+      return (b.time.recency ?? b.time.updated) - (a.time.recency ?? a.time.updated)
     })
   })
 
@@ -491,7 +491,6 @@ export function moveOpenSession(session: SessionInfo, event: Extract<OpenCodeEve
     location: event.data.location,
     projectID: event.data.projectID ?? session.projectID,
     subpath: event.data.subpath,
-    time: { ...session.time, updated: Math.max(session.time.updated, event.created) },
   }
 }
 

@@ -1,13 +1,14 @@
 import type { SessionInfo } from "@opencode/client/promise"
+import { sessionRecency } from "@/session/time"
 import { pathKey } from "@/workspaces/path-key"
 import { isProjectDirectory } from "@/workspaces/paths"
 import type { ServerConnection } from "@/runtime/server/registry"
 import type { HomeProjectSelection } from "@/shell/state/layout"
 
 export function compareSessionTime(a: SessionInfo, b: SessionInfo) {
-  const updated = (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created)
+  const recency = sessionRecency(b) - sessionRecency(a)
 
-  if (updated !== 0) return updated
+  if (recency !== 0) return recency
 
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 }
@@ -65,8 +66,13 @@ export function projectForSession<T extends { id?: string; worktree: string; san
     .sort((a, b) => b.worktree.length - a.worktree.length)[0]
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- errors cross an Effect boundary and arrive untyped
 export const errorMessage = (err: unknown, fallback: string) => {
+  // SAFETY: `err` comes from a failed Effect; narrow it structurally before reading a message.
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- errors have no shared class in this boundary
   if (err && typeof err === "object" && "data" in err) {
+    // SAFETY: the `data` property was checked above; its message is optional.
+    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- see SAFETY above
     const data = (err as { data?: { message?: string } }).data
 
     if (data?.message) return data.message

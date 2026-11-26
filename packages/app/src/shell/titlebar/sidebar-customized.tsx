@@ -12,6 +12,7 @@ import { useLanguage } from "@/runtime/i18n/language"
 import { Persistence } from "@/runtime/persistence/schema"
 import { Persist, persisted } from "@/runtime/persistence/storage"
 import { ServerConnection, useServers } from "@/runtime/server/registry"
+import { sessionRecency } from "@/session/time"
 import { useGlobal, type ServerCtx } from "@/runtime/server/runtime"
 import type { Project } from "@/runtime/server/types"
 import { projectSettingsKey, useSettings } from "@/settings/model"
@@ -231,7 +232,7 @@ export function SidebarCustomized(props: {
         active: isActive(tab.server, tab.sessionId),
         parentKey: undefined,
         status: status(ctx, session),
-        updated: session?.time.updated ?? 0,
+        updated: session ? sessionRecency(session) : 0,
         created: session?.time.created ?? 0,
         order,
         conn: connOf(tab.server),
@@ -273,7 +274,7 @@ export function SidebarCustomized(props: {
             active: isActive(server, session.id),
             parentKey: session.parentID ? sessionRowKey(server, session.parentID) : undefined,
             status: status(ctx, session),
-            updated: session.time.updated,
+            updated: sessionRecency(session),
             created: session.time.created,
             order: 0,
             conn,

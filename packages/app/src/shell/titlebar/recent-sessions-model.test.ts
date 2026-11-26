@@ -242,6 +242,40 @@ test("Recent caps the last 7 days at 30 rows", () => {
   expect(result.hasMore).toBe(true)
 })
 
+test("Recent orders by the last user prompt, not the last activity", () => {
+  const activeNow = item(
+    "server",
+    { ...session("ses_active_now", 300), time: { created: 1, updated: 300, recency: 100 } },
+  )
+
+  const promptNow = item(
+    "server",
+    { ...session("ses_prompt_now", 200), time: { created: 1, updated: 200, recency: 400 } },
+  )
+
+  expect(sortRecentSessions([activeNow, promptNow]).map((entry) => entry.session.id)).toEqual([
+    "ses_prompt_now",
+    "ses_active_now",
+  ])
+})
+
+test("the 7 day window follows activity even when recency is older", () => {
+  // D spoke 8 days ago but a run finished today; it still counts as active this week.
+  const spokeEarly = item(
+    "server",
+    {
+      ...session("ses_spoke_early", now),
+      time: { created: 1, updated: now, recency: now - RECENT_WINDOW_MS - 24 * 60 * 60 * 1000 },
+    },
+  )
+
+  const items = sortRecentSessions([item("server", session("ses_recent", now - 60_000)), spokeEarly])
+
+  const result = windowRecentSessions({ items, now, revealed: 0, serversHaveMore: false })
+
+  expect(ids(result.visible)).toContain("ses_spoke_early")
+})
+
 test("Show more reveals 30 more rows regardless of age", () => {
   const items = timeline(5, 40)
   const result = windowRecentSessions({ items, now, revealed: RECENT_VISIBLE_LIMIT, serversHaveMore: false })

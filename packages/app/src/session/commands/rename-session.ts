@@ -20,8 +20,8 @@ export function createSessionRenamer() {
     await ctx.sdk.api.session.update({ sessionID: session.id, title })
     ctx.data.session.remember({ ...(ctx.data.session.get(session.id) ?? session), title })
 
-    // Like the iOS app, a rename changes the title only. The server advanced time.updated, and the session moves
-    // when a list next reloads, so update the cached indexes instead of refetching them now.
+    // Like the iOS app, a rename changes the title only; session time and order stay put.
+    // Update the cached indexes instead of refetching them now.
     for (const queryKey of ["home-sessions", "inbox-sessions", "inbox-archived-sessions"]) {
       queryClient.setQueryData<SessionInfo[]>([queryKey, conn], (current) =>
         current?.map((item) => (item.id === session.id ? { ...item, title } : item)),

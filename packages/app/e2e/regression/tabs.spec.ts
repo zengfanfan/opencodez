@@ -2562,6 +2562,36 @@ test("the Cozy sidebar drags a project and keeps its order after reload", async 
   await expect(projects.first()).toContainText("Cozy alpha")
 })
 
+test("the Cozy sidebar shows the last activity, not the last user prompt", async ({ page }) => {
+  const now = Date.now()
+
+  await mockWorkspace(page, {
+    name: "CozyTime",
+    project: { vcs: undefined },
+    sessions: [
+      {
+        id: "ses_cozy_time",
+        title: "Cozy time",
+        time: {
+          created: now - 10 * 86_400_000,
+          updated: now - 4 * 86_400_000,
+          recency: now - 60_000,
+        },
+      },
+    ],
+    seed: { settings: { appearance: { tabLayout: "cozy" } } },
+  })
+  await page.goto("/")
+
+  const row = page
+    .locator('[data-slot="sidebar-cozy"]')
+    .locator('[data-slot="sidebar-cozy-item"]')
+    .filter({ hasText: "Cozy time" })
+
+  await row.hover()
+  await expect(page.getByRole("tooltip")).toContainText(/4d ago/)
+})
+
 test("the Cozy sidebar shows recent sessions on one 28px row", async ({ page }) => {
   await mockWorkspace(page, {
     name: "Cozy",

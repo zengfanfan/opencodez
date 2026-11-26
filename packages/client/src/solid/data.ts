@@ -351,7 +351,9 @@ export function createData(config: CreateDataInput) {
 
   const [defaultLocation, setDefaultLocation] = createSignal<LocationRef>({ directory: config.directory })
   const sessions = createMemo(() =>
-    Object.values(store.session.info).toSorted((a, b) => b.time.updated - a.time.updated),
+    Object.values(store.session.info).toSorted(
+      (a, b) => (b.time.recency ?? b.time.updated ?? b.time.created) - (a.time.recency ?? a.time.updated ?? a.time.created),
+    ),
   )
   const messageIndex = new Map<string, Map<string, number>>()
   const omitFiles = () =>

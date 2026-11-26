@@ -1,5 +1,6 @@
 import type { OpenCodeEvent, SessionInfo } from "@opencode/client/promise"
 import { ServerConnection } from "@/runtime/server/registry"
+import { sessionActivity, sessionRecency } from "@/session/time"
 
 const separator = "\u0000"
 
@@ -87,12 +88,11 @@ export function reorderPins(pins: readonly string[], visible: readonly string[],
   return pins.map((pin) => (shown.has(pin) ? nextVisible[index++] : pin))
 }
 
-/** Recent sessions sort by their latest activity, then by ID so equal timestamps keep one stable order. */
+/** Recent sessions sort by the last user prompt, then by ID so equal timestamps keep one stable order. */
 export function compareRecentSessions(a: RecentSession, b: RecentSession) {
-  const updated =
-    (b.session.time.updated ?? b.session.time.created) - (a.session.time.updated ?? a.session.time.created)
+  const recency = sessionRecency(b.session) - sessionRecency(a.session)
 
-  if (updated !== 0) return updated
+  if (recency !== 0) return recency
 
   if (a.session.id !== b.session.id) return a.session.id < b.session.id ? -1 : 1
 
@@ -119,10 +119,12 @@ export function windowRecentSessions(input: {
   serversHaveMore: boolean
 }) {
   const cutoff = input.now - RECENT_WINDOW_MS
-  const older = input.items.findIndex((item) => sessionTime(item.session) < cutoff)
-  const inWindow = older === -1 ? input.items.length : older
-  const limit = Math.min(inWindow, RECENT_VISIBLE_LIMIT) + input.revealed
-  const visible = input.items.slice(0, limit)
+  const inWindow = input.items.filter((item) => sessionActivity(item.session) >= cutoff)
+  const windowed = inWindow.slice(0, RECENT_VISIBLE_LIMIT)
+  const shown = new Set(windowed.map((item) => item.key))
+  const rest = input.items.filter((item) => !shown.has(item.key))
+  const visible = sortRecentSessions([...windowed, ...rest.slice(0, input.revealed)])
+  const limit = Math.min(inWindow.length, RECENT_VISIBLE_LIMIT) + input.revealed
 
   return { visible, limit, hasMore: input.items.length > visible.length || input.serversHaveMore }
 }
@@ -189,10 +191,6 @@ const NO_EFFECTS: readonly RecentPageEffect[] = []
 
 function unchanged(state: RecentPageState): RecentPageTransition {
   return { state, effects: NO_EFFECTS }
-}
-
-function sessionTime(session: SessionInfo) {
-  return session.time.updated ?? session.time.created
 }
 
 function mergeSessions(current: readonly SessionInfo[], next: readonly SessionInfo[]) {
@@ -263,9 +261,9 @@ function finishLoading(
     }
   }
 
-  const oldest = incoming.reduce((oldest, session) => Math.min(oldest, sessionTime(session)), Infinity)
+  const oldest = incoming.reduce((oldest, session) => Math.min(oldest, sessionRecency(session)), Infinity)
 
-  if (oldest > state.sessions.reduce((newest, session) => Math.max(newest, sessionTime(session)), -Infinity)) {
+  if (oldest > state.sessions.reduce((newest, session) => Math.max(newest, sessionRecency(session)), -Infinity)) {
     return {
       state: { status: "ready", sessions: incoming, cursor: next, exhausted: false, olderLoaded: false },
       effects: [{ type: "timer.cancel" }],
@@ -273,7 +271,7 @@ function finishLoading(
   }
 
   const incomingIDs = new Set(incoming.map((session) => session.id))
-  const kept = state.sessions.filter((session) => sessionTime(session) < oldest || incomingIDs.has(session.id))
+  const kept = state.sessions.filter((session) => sessionRecency(session) < oldest || incomingIDs.has(session.id))
 
   return {
     state: {

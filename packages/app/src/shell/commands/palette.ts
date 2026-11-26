@@ -10,6 +10,7 @@ import { useServer } from "@/runtime/server/current"
 import { useLanguage } from "@/runtime/i18n/language"
 import type { LocalProject } from "@/shell/state/layout"
 import { ServerConnection } from "@/runtime/server/registry"
+import { sessionRecency } from "@/session/time"
 import { useServerSDK } from "@/runtime/server/client"
 import { useTabs } from "@/shell/tabs/tabs"
 import { displayName } from "@opencode/ui/project-avatar"
@@ -49,6 +50,7 @@ export type CommandPaletteEntry = {
   project?: LocalProject
   archived?: number
   updated?: number
+  recency?: number
   setting?: SettingsSearchResult
 }
 
@@ -294,12 +296,11 @@ export function createServerSessionEntries(props: {
     }
   >()
 
-  // The server's list carries each step's `time.updated` bump. Like Home, keep the cached time until a run ends.
-  // Sort after `apply` so a pending send's bump decides which sessions make the recent group.
+  // Sort by the last user prompt after `apply`, so a pending send's bump decides which sessions make the recent group.
   const known = createMemo(() => {
     const merged = mergeRootSessionIndex(props.known?.() ?? [], sourceState().loaded)
 
-    return (props.apply?.(merged) ?? merged).toSorted((a, b) => b.time.updated - a.time.updated)
+    return (props.apply?.(merged) ?? merged).toSorted((a, b) => sessionRecency(b) - sessionRecency(a))
   })
 
   const dispatch = (event: SessionSourceEvent) =>
@@ -398,6 +399,7 @@ export function createServerSessionEntries(props: {
           server: props.server,
           project,
           updated: session.time.updated,
+          recency: sessionRecency(session),
         },
       ]
     })

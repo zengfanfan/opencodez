@@ -9,6 +9,7 @@ import { useLanguage } from "@/runtime/i18n/language"
 import { projectSettingsKey, useSettings } from "@/settings/model"
 import { useLayout } from "@/shell/state/layout"
 import { useTabs } from "@/shell/tabs/tabs"
+import { sessionRecency } from "@/session/time"
 import { sessionBusy, sessionRequests, type SessionRequests } from "@/shell/layout/project-avatar-state"
 import { pathKey } from "@/workspaces/path-key"
 import { parseHomeSessionIndex } from "@/home/sessions/index"
@@ -67,6 +68,8 @@ export type InboxEntry = {
   session: SessionInfo
   status: InboxStatus
   since: number | undefined
+  /** Last user prompt; orders the Read section. `since` stays the displayed age. */
+  recency: number | undefined
 }
 
 /**
@@ -263,10 +266,11 @@ export function createSessionInbox(options: { archived?: boolean; index?: Sessio
               session,
               status: value,
               since: since(value, session, requests),
+              recency: sessionRecency(session),
             }
           })
       })
-      .toSorted((a, b) => b.session.time.updated - a.session.time.updated),
+      .toSorted((a, b) => (b.recency ?? 0) - (a.recency ?? 0)),
   )
 
   const hasWorking = createMemo(() => entries().some((entry) => entry.status === "working"))

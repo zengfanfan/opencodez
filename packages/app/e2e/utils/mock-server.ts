@@ -1691,6 +1691,7 @@ const decodeSession = Schema.decodeUnknownSync(
       Schema.Struct({
         created: lenient(Schema.Number),
         updated: lenient(Schema.Number),
+        recency: lenient(Schema.Number),
         busy: lenient(Schema.Number),
         idle: lenient(Schema.Number),
         viewed: lenient(Schema.Number),

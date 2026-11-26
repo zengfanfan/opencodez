@@ -359,7 +359,7 @@ export function createHomeSessionsController(home: HomeController) {
       .update({ sessionID: session.id, title: next }, { signal })
       .then(() => {
         ctx.data.session.remember({ ...(ctx.data.session.get(session.id) ?? session), title: next })
-        // Rename advances time.updated server-side; like the iOS app, the session moves when the list next reloads.
+        // A rename does not change session time or order; update the cached title in place.
         queryClient.setQueryData<SessionInfo[]>(["home-sessions", conn], (current) =>
           current?.map((item) => (item.id === session.id ? { ...item, title: next } : item)),
         )

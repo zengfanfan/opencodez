@@ -1,4 +1,5 @@
 import type { SessionInfo, SessionsResponse } from "@opencode/client/promise"
+import { sessionRecency } from "@/session/time"
 import { pathKey } from "@/workspaces/path-key"
 import { mergeRootSessionIndex } from "@/runtime/server/session-index"
 import { SESSION_RECENT_LIMIT, SESSION_RECENT_WINDOW } from "@/runtime/server/global-sync/types"
@@ -45,9 +46,9 @@ export function mergeHomeSessionIndex(fetched: readonly SessionInfo[], known: re
 export function retainHomeSessions(sessions: SessionInfo[], limit: number, now: number) {
   return [...Map.groupBy(sessions, (session) => pathKey(session.location.directory)).values()].flatMap((items) => {
     const sorted = items.toSorted((a, b) => {
-      const updated = (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created)
+      const recency = sessionRecency(b) - sessionRecency(a)
 
-      return updated || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      return recency || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
     })
 
     const recent = sorted

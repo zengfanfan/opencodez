@@ -1,5 +1,6 @@
 import type { Project } from "@/runtime/server/types"
 import type { ServerConnection } from "@/runtime/server/registry"
+import { sessionRecency } from "@/session/time"
 import type { InboxEntry } from "./inbox-model"
 
 export type CozyProjectKey = string
@@ -57,9 +58,9 @@ export function cozyProjectOrder(projects: readonly Project[], saved: readonly s
 }
 
 function compareSessions(a: CozySession, b: CozySession) {
-  const updated = b.entry.session.time.updated - a.entry.session.time.updated
+  const recency = sessionRecency(b.entry.session) - sessionRecency(a.entry.session)
 
-  if (updated !== 0) return updated
+  if (recency !== 0) return recency
 
   return a.entry.session.id.localeCompare(b.entry.session.id)
 }
