@@ -25,6 +25,54 @@ export type CozyProject = CozyProjectInfo & {
 
 export type CozyPinnedRef = { kind: "project"; key: CozyProjectKey } | { kind: "session"; key: string }
 
+export type CozyDragData =
+  | {
+      kind: "session"
+      key: string
+      server: string
+      sessionID: string
+      projectKey: string | undefined
+      recency: number | undefined
+    }
+  | {
+      kind: "project"
+      key: string
+      server: string
+      worktree: string
+    }
+
+/** Whether a Cozy row can be dropped into a group without leaving a row in an invisible place. */
+export function cozyDropAllowed(input: {
+  source: CozyDragData
+  from: string | undefined
+  to: string
+  pinnedProjects: ReadonlySet<string>
+  projectKeys: ReadonlySet<string>
+}) {
+  if (input.source.kind === "session") {
+    if (input.to === "pinned") return true
+
+    if (input.to !== "recent") return false
+
+    if (input.from === "recent") return true
+
+    if (input.from !== "pinned" || !input.source.projectKey) return false
+
+    return input.projectKeys.has(input.source.projectKey) && !input.pinnedProjects.has(input.source.projectKey)
+  }
+
+  if (input.to === "pinned") return true
+
+  if (input.to === "recent") return false
+
+  if (!input.to.startsWith("projects:")) return false
+
+  const server = input.to.slice("projects:".length)
+
+  return input.source.server === server && (input.from === "pinned" || input.from === input.to)
+}
+
+
 export type CozyItem =
   | { kind: "project"; project: CozyProject; count: number }
   | { kind: "session"; session: CozySession }

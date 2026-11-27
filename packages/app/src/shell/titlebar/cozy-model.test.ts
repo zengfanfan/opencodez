@@ -6,6 +6,7 @@ import type { InboxEntry, InboxStatus } from "./inbox-model"
 import {
   bumpedRecent,
   cozyCleanPins,
+  cozyDropAllowed,
   cozyMixPins,
   cozyPlacement,
   cozyProjectKey,
@@ -285,6 +286,85 @@ describe("cozy pins", () => {
     expect(reorderCozyPins(["a", "b", "c"], ["a", "b"], ["b", "a"])).toEqual(["b", "a", "c"])
     expect(reorderCozyPins(["a", "b"], ["a", "b"], ["a"])).toEqual(["a", "b"])
     expect(reorderProjectOrder(["a", "b"], ["a", "b"], ["b", "a"])).toEqual(["b", "a"])
+  })
+
+  test("reorders project and session rows together", () => {
+    const base = ["p:sidecar\u0000C:/p", "s:sidecar\u0000a", "s:sidecar\u0000b"]
+
+    expect(reorderCozyPins(base, base, ["s:sidecar\u0000b", "p:sidecar\u0000C:/p", "s:sidecar\u0000a"])).toEqual([
+      "s:sidecar\u0000b",
+      "p:sidecar\u0000C:/p",
+      "s:sidecar\u0000a",
+    ])
+    expect(reorderCozyPins(base, base, ["s:sidecar\u0000a", "s:sidecar\u0000b", "p:sidecar\u0000C:/p"])).toEqual([
+      "s:sidecar\u0000a",
+      "s:sidecar\u0000b",
+      "p:sidecar\u0000C:/p",
+    ])
+  })
+
+  test("pairs sessions in pin order while keeping project slots in place", () => {
+    expect(
+      cozyMixPins({
+        stored: ["p:sidecar\u0000C:/p", "s:sidecar\u0000c", "s:sidecar\u0000a"],
+        pinnedProjects: new Set(["sidecar\u0000C:/p"]),
+        sessions: ["sidecar\u0000a", "sidecar\u0000b", "sidecar\u0000c"],
+      }),
+    ).toEqual(["p:sidecar\u0000C:/p", "s:sidecar\u0000a", "s:sidecar\u0000b", "s:sidecar\u0000c"])
+  })
+})
+
+describe("cozyDropAllowed", () => {
+  const session = (projectKey: string | undefined) => ({
+    kind: "session" as const,
+    key: "sidecar\u0000A",
+    server: "sidecar",
+    sessionID: "A",
+    projectKey,
+    recency: 1,
+  })
+
+  const project = {
+    kind: "project" as const,
+    key: "sidecar\u0000C:/p",
+    server: "sidecar",
+    worktree: "C:/p",
+  }
+
+  test("accepts the four cross-group pin moves and same-group reorder", () => {
+    const allowed = (source: ReturnType<typeof session> | typeof project, from: string, to: string) =>
+      cozyDropAllowed({
+        source,
+        from,
+        to,
+        pinnedProjects: new Set<string>(),
+        projectKeys: new Set(["sidecar\u0000C:/p"]),
+      })
+
+    expect(allowed(session("sidecar\u0000C:/p"), "recent", "pinned")).toBe(true)
+    expect(allowed(session("sidecar\u0000C:/p"), "pinned", "recent")).toBe(true)
+    expect(allowed(project, "projects:sidecar", "pinned")).toBe(true)
+    expect(allowed(project, "pinned", "projects:sidecar")).toBe(true)
+    expect(allowed(session("sidecar\u0000C:/p"), "recent", "recent")).toBe(true)
+    expect(allowed(project, "projects:sidecar", "projects:sidecar")).toBe(true)
+  })
+
+  test("rejects an invisible landing place", () => {
+    const allowed = (source: ReturnType<typeof session> | typeof project, from: string, to: string, pinned = false) =>
+      cozyDropAllowed({
+        source,
+        from,
+        to,
+        pinnedProjects: new Set(pinned ? ["sidecar\u0000C:/p"] : []),
+        projectKeys: new Set(["sidecar\u0000C:/p"]),
+      })
+
+    expect(allowed(session("sidecar\u0000C:/p"), "pinned", "recent", true)).toBe(false)
+    expect(allowed(session(undefined), "pinned", "recent")).toBe(false)
+    expect(allowed(session("sidecar\u0000C:/p"), "recent", "projects:sidecar")).toBe(false)
+    expect(allowed(project, "projects:sidecar", "recent")).toBe(false)
+    expect(allowed(project, "pinned", "projects:other")).toBe(false)
+    expect(allowed(project, "projects:sidecar", "projects:other")).toBe(false)
   })
 })
 

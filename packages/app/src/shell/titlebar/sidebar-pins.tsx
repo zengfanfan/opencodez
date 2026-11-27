@@ -20,7 +20,6 @@ import { useSessionTabAvatarState } from "@/shell/layout/project-avatar-state"
 import { showToast } from "@/shell/notifications/toast"
 import { tabHref, tabKey, useTabs, type Tab } from "@/shell/tabs/tabs"
 import {
-  recentSessionKey,
   splitRecentSessionKey,
 } from "./recent-sessions-model"
 import { DeleteSessionDialog } from "./recent-sessions"
@@ -183,7 +182,7 @@ export function createPinnedSessions(input: {
 
             if (event.canceled || !isSortable(source) || source.initialIndex === source.index) return
 
-            const visible = items().map((item) => recentSessionKey(item.server, item.session.id))
+            const visible = items().map((item) => input.pins.identity(item.server, item.session.id))
 
             input.pins.reorder(visible, arrayMove(visible, source.initialIndex, source.index))
           }}

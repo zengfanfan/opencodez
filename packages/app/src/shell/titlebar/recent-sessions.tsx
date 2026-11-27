@@ -601,12 +601,12 @@ export function RecentSessions() {
   })
 
   const reorderPinned = (nextVisible: readonly string[]) => {
-    const visible = pinned().map((item) => item.key)
+    const visible = pinned().map((item) => sessionPins.identity(item.server, item.session.id))
     sessionPins.reorder(visible, nextVisible)
   }
 
   const movePin = (key: string, offset: number) => {
-    const visible = pinned().map((item) => item.key)
+    const visible = pinned().map((item) => sessionPins.identity(item.server, item.session.id))
     const index = visible.indexOf(key)
 
     if (index === -1) return
@@ -778,8 +778,8 @@ export function RecentSessions() {
       onOpen: () => open(item()),
       onPin: () => sessionPins.pinKey(item().key),
       onUnpin: () => removePinKey(item().key),
-      onMoveUp: () => movePin(item().key, -1),
-      onMoveDown: () => movePin(item().key, 1),
+      onMoveUp: () => movePin(sessionPins.identity(item().server, item().session.id), -1),
+      onMoveDown: () => movePin(sessionPins.identity(item().server, item().session.id), 1),
       onArchive: () => archive(item()),
       onDelete: () => {
         const current = item()
@@ -830,7 +830,7 @@ export function RecentSessions() {
 
                   if (event.canceled || !isSortable(source) || source.initialIndex === source.index) return
 
-                  const visible = pinned().map((item) => item.key)
+                  const visible = pinned().map((item) => sessionPins.identity(item.server, item.session.id))
                   reorderPinned(arrayMove(visible, source.initialIndex, source.index))
                 }}
               >

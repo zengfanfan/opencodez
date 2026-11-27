@@ -1,24 +1,31 @@
 import { createEffect, createMemo } from "solid-js"
 import { createSimpleContext } from "@opencode/ui/context"
 import { Persist, persisted } from "@/runtime/persistence/storage"
-import { useServers } from "@/runtime/server/registry"
+import { useServers, ServerConnection } from "@/runtime/server/registry"
 import {
   addPin,
   dedupePins,
   recentSessionEndpoints,
   recentSessionKey,
   removePin,
-  reorderPins,
   splitRecentSessionKey,
 } from "./recent-sessions-model"
 import {
   applyUnpin,
+  dedupePinKeys,
   moveRecentToFront,
   normalizeCozyOrder,
   normalizeRecentOrder,
   PinsState,
+  pinProjectAt,
+  pinSessionAt,
+  reorderPinGroups,
+  unpinSessionAt,
   withCozyPin,
   withoutCozyPin,
+  type PinProjectAtInput,
+  type PinSessionAtInput,
+  type UnpinSessionAtInput,
 } from "./session-pins-state"
 
 export type SessionPins = ReturnType<typeof createSessionPins>
@@ -40,10 +47,54 @@ export function createSessionPins() {
 
   const identity = (server: string, sessionID: string) => recentSessionKey(endpoints().get(server) ?? server, sessionID)
 
+  const connections = createMemo(
+    () => new Map(servers.list.map((conn) => [String(ServerConnection.key(conn)), conn] as const)),
+  )
+
+  const visibleServers = createMemo(() => new Set(servers.visible.map((conn) => String(ServerConnection.key(conn)))))
+
+  const connectionCandidates = (server: string) => {
+    const keys = connections()
+    const result: string[] = []
+
+    if (keys.has(server)) result.push(server)
+    const endpoint = endpoints().get(server)
+
+    if (endpoint && keys.has(endpoint)) result.push(endpoint)
+
+    for (const [key, value] of endpoints()) {
+      if (value === server && keys.has(key)) result.push(key)
+    }
+
+    return result.length > 0 ? result : [server]
+  }
+
+  // Only visibility and connection type are available here: SessionPins sits outside GlobalProvider, so it cannot
+  // inspect serverCtx. A hidden endpoint alias must not shadow the connection key a sidebar can actually load.
+  const connectionRank = (key: string) => {
+    const conn = connections().get(key)
+
+    if (!conn) return 5
+
+    if (!visibleServers().has(key)) return 4
+
+    if (ServerConnection.builtin(conn)) return 0
+
+    if (conn.type === "plugin") return 1
+
+    if (conn.type === "http") return 2
+
+    return 3
+  }
+
+  const pinKeys = createMemo(() =>
+    dedupePinKeys(state.pins, identity, connectionCandidates, connectionRank),
+  )
+
   const identities = createMemo(
     () =>
       new Set(
-        state.pins.flatMap((key) => {
+        pinKeys().flatMap((key) => {
           const pin = splitRecentSessionKey(key)
 
           return pin ? [identity(pin.server, pin.sessionID)] : []
@@ -51,8 +102,9 @@ export function createSessionPins() {
       ),
   )
 
-  // Older documents and hand edits may hold duplicates or endpoint aliases. Normalize once the store is ready; the
-  // effect is idempotent, and the same write also gives an old `{ pins }` document its empty `cozy` field.
+  // Older documents and hand edits may hold exact duplicates. Normalize once the store is ready; the effect is
+  // idempotent, and the same write also gives an old `{ pins }` document its empty `cozy` field. Endpoint aliases stay
+  // raw here; the `pinKeys` view chooses a loadable connection key without rewriting storage.
   createEffect(() => {
     if (!ready()) return
 
@@ -90,7 +142,7 @@ export function createSessionPins() {
 
   return {
     ready,
-    keys: () => state.pins,
+    keys: () => pinKeys(),
     identity,
     pinned: (server: string, sessionID: string) => identities().has(identity(server, sessionID)),
     unpin,
@@ -106,12 +158,30 @@ export function createSessionPins() {
       unpin(server, sessionID)
     },
     reorder: (visible: readonly string[], next: readonly string[]) =>
-      setState("pins", reorderPins(state.pins, visible, next)),
+      setState("pins", reorderPinGroups(state.pins, visible, next, identity)),
     reorderWithCozy: (visible: readonly string[], next: readonly string[], cozy: readonly string[]) =>
       setState({
-        pins: reorderPins(state.pins, visible, next),
+        pins: reorderPinGroups(state.pins, visible, next, identity),
         cozy: [...cozy],
       }),
+    pinSessionAt: (input: Omit<PinSessionAtInput, "state" | "identityOf">) =>
+      setState(
+        pinSessionAt({
+          ...input,
+          state: { pins: state.pins, cozy: state.cozy },
+          identityOf: identity,
+        }),
+      ),
+    unpinSessionAt: (input: Omit<UnpinSessionAtInput, "state" | "identityOf">) =>
+      setState(
+        unpinSessionAt({
+          ...input,
+          state: { pins: state.pins, cozy: state.cozy, recent: state.recent },
+          identityOf: identity,
+        }),
+      ),
+    pinProjectAt: (input: Omit<PinProjectAtInput, "state">) =>
+      setState("cozy", pinProjectAt({ ...input, state: { cozy: state.cozy } }).cozy),
     cozyOrder: () => state.cozy ?? [],
     setCozyOrder: (next: readonly string[]) => setState("cozy", [...next]),
     recentOrder: () => state.recent ?? [],

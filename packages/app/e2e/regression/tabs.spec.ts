@@ -2948,6 +2948,482 @@ test("the Cozy sidebar keeps every pin when one is dragged", async ({ page }) =>
   ])
 })
 
+// Drops a Cozy row on another row's top or bottom quarter, which is dnd-kit's before/after insertion band.
+async function dragCozyRow(page: Page, from: Locator, to: Locator, edge: "top" | "bottom" = "top") {
+  const fromBox = await cozyRowBox(from)
+
+  if (!fromBox) throw new Error("Missing Cozy row bounds")
+  await page.mouse.move(fromBox.x + 30, fromBox.y + fromBox.height / 2)
+  await page.mouse.down()
+  // Moving across groups collapses the source group, so read the target only after the drag has started.
+  await page.mouse.move(fromBox.x + 30, fromBox.y + fromBox.height / 2 + 8, { steps: 4 })
+  const toBox = await cozyRowBox(to)
+
+  if (!toBox) throw new Error("Missing Cozy row bounds")
+  await page.mouse.move(toBox.x + 30, toBox.y + toBox.height * (edge === "top" ? 0.25 : 0.75), { steps: 12 })
+  await page.mouse.up()
+}
+
+// A group tail only exists while a compatible row is dragged, so press first and read its bounds afterwards.
+async function dragCozyRowToTail(page: Page, from: Locator, tail: Locator) {
+  const fromBox = await cozyRowBox(from)
+
+  if (!fromBox) throw new Error("Missing Cozy row bounds")
+  await page.mouse.move(fromBox.x + 30, fromBox.y + fromBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(fromBox.x + 30, fromBox.y + fromBox.height / 2 + 8, { steps: 4 })
+  await expect(tail).toBeVisible()
+  const tailBox = await cozyRowBox(tail)
+
+  if (!tailBox) throw new Error("Missing Cozy tail bounds")
+  await page.mouse.move(tailBox.x + tailBox.width / 2, tailBox.y + tailBox.height / 2, { steps: 8 })
+  await page.mouse.up()
+}
+
+// A working session re-renders its row, so resolve and measure in one page call instead of a locator round-trip.
+async function cozyRowBox(locator: Locator) {
+  const measure = () =>
+    locator.evaluateAll((elements) => {
+      const element = elements[0]
+
+      if (!element) return undefined
+      const rect = element.getBoundingClientRect()
+
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    })
+
+  // Re-renders briefly detach the row; wait until it has a real layout box before using its coordinates.
+  await expect.poll(async () => ((await measure())?.width ?? 0) > 0).toBe(true)
+
+  return measure()
+}
+
+test("the Cozy sidebar pins a Recent session between two pinned rows", async ({ page }) => {
+  const names = ["alpha", "beta", "gamma", "delta", "epsilon"]
+
+  await mockWorkspace(page, {
+    name: "CozyMoveIn",
+    project: { vcs: undefined },
+    sessions: names.map((name, index) => ({
+      id: `ses_cozy_move_${name}`,
+      title: `Move ${name}`,
+      time: { created: T0, updated: T0 + (index + 1) * 100, recency: T0 + (index + 1) * 100 },
+    })),
+    seed: { settings: { appearance: { tabLayout: "cozy" } } },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const recent = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-recent"]')
+  const recentRows = recent.locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+
+  await expect(recentRows).toHaveText([/epsilon/, /delta/, /gamma/, /beta/, /alpha/])
+
+  for (const title of ["Move delta", "Move beta"]) {
+    const row = recentRows.filter({ hasText: title })
+    await row.hover()
+    await row.getByRole("button", { name: "Pin", exact: true }).click()
+  }
+
+  const pinned = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-pinned"]')
+  const pinnedRows = pinned.locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+  await expect(pinnedRows).toHaveText([/Move delta/, /Move beta/])
+
+  await dragCozyRow(page, recentRows.filter({ hasText: "Move gamma" }), pinnedRows.filter({ hasText: "Move beta" }))
+
+  await expect(pinnedRows).toHaveText([/Move delta/, /Move gamma/, /Move beta/])
+  await expect(recentRows).toHaveText([/epsilon/, /alpha/])
+  await page.reload()
+  await expect(pinnedRows).toHaveText([/Move delta/, /Move gamma/, /Move beta/])
+  await expect(recentRows).toHaveText([/epsilon/, /alpha/])
+})
+
+test("the Cozy sidebar unpins a session that gained recency while pinned at its Recent drop position", async ({
+  page,
+}) => {
+  const names = ["alpha", "beta", "gamma", "delta", "epsilon"]
+
+  const workspace = await mockWorkspace(page, {
+    name: "CozyUnpin",
+    project: { vcs: undefined },
+    sessions: names.map((name, index) => ({
+      id: `ses_cozy_unpin_${name}`,
+      title: `Unpin ${name}`,
+      time: { created: T0, updated: T0 + (index + 1) * 100, recency: T0 + (index + 1) * 100 },
+    })),
+    seed: { settings: { appearance: { tabLayout: "cozy" } } },
+  })
+
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const recent = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-recent"]')
+  const recentRows = recent.locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+
+  await expect(recentRows).toHaveText([/epsilon/, /delta/, /gamma/, /beta/, /alpha/])
+
+  const gamma = recentRows.filter({ hasText: "Unpin gamma" })
+  await gamma.hover()
+  await gamma.getByRole("button", { name: "Pin", exact: true }).click()
+
+  const pinned = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-pinned"]')
+  const pinnedRows = pinned.locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+  await expect(pinnedRows).toHaveText([/Unpin gamma/])
+
+  // The session finishes with a newer recency while pinned. Unpinning must keep the drop position instead of
+  // promoting it to the top.
+  const entry = workspace.sessions.find((item) => item.id === "ses_cozy_unpin_gamma")!
+  entry.time = { created: T0, updated: T0 + 900, recency: T0 + 900, idle: T0 + 900 }
+  await workspace.push([
+    {
+      id: "evt_cozy_unpin_finished",
+      type: "session.execution.succeeded",
+      created: T0 + 900,
+      durable: { aggregateID: entry.id, seq: 1, version: 1 },
+      location: { directory: workspace.directory },
+      data: { sessionID: entry.id },
+    } satisfies Extract<OpenCodeEvent, { type: "session.execution.succeeded" }>,
+  ])
+  await expect(recentRows).toHaveText([/epsilon/, /delta/, /beta/, /alpha/])
+  await expect(pinned.locator('[data-slot="sidebar-cozy-item"][data-status="working"]')).toHaveCount(0)
+
+  await dragCozyRow(
+    page,
+    pinnedRows.filter({ hasText: "Unpin gamma" }),
+    recentRows.filter({ hasText: "Unpin delta" }),
+  )
+
+  await expect(pinned).toHaveCount(0)
+  await expect(recentRows).toHaveText([/epsilon/, /delta/, /gamma/, /beta/, /alpha/])
+  await page.reload()
+  await expect(recentRows).toHaveText([/epsilon/, /delta/, /gamma/, /beta/, /alpha/])
+})
+
+test("the Cozy sidebar pins a project at a chosen Pinned position", async ({ page }) => {
+  const betaDirectory = "C:/OpenCode/CozyPinProjectBeta"
+
+  await mockWorkspace(page, {
+    name: "CozyPinProject",
+    project: { id: "proj_cozy_pin_project", vcs: undefined },
+    projects: [
+      project({ id: "proj_cozy_pin_project", directory: "C:/OpenCode/CozyPinProject", name: "CozyPinProject", vcs: undefined }),
+      project({
+        id: "proj_cozy_pin_project_beta",
+        directory: betaDirectory,
+        name: "Cozy pin beta",
+        vcs: undefined,
+        time: { created: T0 + 1000, updated: T0 + 1000, active: T0 + 1000 },
+      }),
+    ],
+    sessions: [
+      { id: "ses_cozy_pin_project_anchor", title: "Project anchor" },
+      { id: "ses_cozy_pin_project_beta", title: "Beta session", directory: betaDirectory, projectID: "proj_cozy_pin_project_beta" },
+    ],
+    seed: {
+      settings: { appearance: { tabLayout: "cozy" } },
+      usedProjects: { local: ["proj_cozy_pin_project", "proj_cozy_pin_project_beta"] },
+    },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+
+  const recentRows = sidebar
+    .locator('[role="group"][aria-labelledby="sidebar-cozy-recent"]')
+    .locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+
+  const anchor = recentRows.filter({ hasText: "Project anchor" })
+  await anchor.hover()
+  await anchor.getByRole("button", { name: "Pin", exact: true }).click()
+
+  const pinned = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-pinned"]')
+  const pinnedRows = pinned.locator('[data-slot="sidebar-cozy-row"]')
+  await expect(pinnedRows).toHaveText([/Project anchor/])
+
+  await sidebar.getByRole("button", { name: "Projects", exact: true }).click()
+
+  const projectRows = sidebar
+    .locator('[role="group"][aria-labelledby="sidebar-cozy-projects"]')
+    .locator('[data-slot="sidebar-cozy-row"][data-kind="project"]')
+
+  const beta = projectRows.filter({ hasText: "Cozy pin beta" })
+
+  await dragCozyRow(page, beta, pinnedRows.filter({ hasText: "Project anchor" }))
+
+  await expect(pinnedRows).toHaveText([/Cozy pin beta/, /Project anchor/])
+  await expect(projectRows).toHaveText([/CozyPinProject/])
+  await page.reload()
+  await expect(pinnedRows).toHaveText([/Cozy pin beta/, /Project anchor/])
+})
+
+test("the Cozy sidebar unpins a project at its project-group drop position", async ({ page }) => {
+  const alphaDirectory = "C:/OpenCode/CozyUnpinAlpha"
+  const betaDirectory = "C:/OpenCode/CozyUnpinBeta"
+  const gammaDirectory = "C:/OpenCode/CozyUnpinGamma"
+
+  await mockWorkspace(page, {
+    name: "CozyUnpinProject",
+    directory: alphaDirectory,
+    project: { id: "proj_cozy_unpin_alpha", vcs: undefined },
+    projects: [
+      project({
+        id: "proj_cozy_unpin_alpha",
+        directory: alphaDirectory,
+        name: "Cozy unpin alpha",
+        vcs: undefined,
+        time: { created: T0 + 3000, updated: T0 + 3000, active: T0 + 3000 },
+      }),
+      project({
+        id: "proj_cozy_unpin_beta",
+        directory: betaDirectory,
+        name: "Cozy unpin beta",
+        vcs: undefined,
+        time: { created: T0 + 2000, updated: T0 + 2000, active: T0 + 2000 },
+      }),
+      project({
+        id: "proj_cozy_unpin_gamma",
+        directory: gammaDirectory,
+        name: "Cozy unpin gamma",
+        vcs: undefined,
+        time: { created: T0 + 1000, updated: T0 + 1000, active: T0 + 1000 },
+      }),
+    ],
+    sessions: [
+      { id: "ses_cozy_unpin_project_alpha", title: "Alpha session" },
+      { id: "ses_cozy_unpin_project_beta", title: "Beta session", directory: betaDirectory, projectID: "proj_cozy_unpin_beta" },
+      { id: "ses_cozy_unpin_project_gamma", title: "Gamma session", directory: gammaDirectory, projectID: "proj_cozy_unpin_gamma" },
+    ],
+    seed: {
+      settings: { appearance: { tabLayout: "cozy" } },
+      usedProjects: { local: ["proj_cozy_unpin_alpha", "proj_cozy_unpin_beta", "proj_cozy_unpin_gamma"] },
+    },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  await sidebar.getByRole("button", { name: "Projects", exact: true }).click()
+
+  const projectGroup = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-projects"]')
+  const projectRows = projectGroup.locator('[data-slot="sidebar-cozy-row"][data-kind="project"]')
+  const pinned = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-pinned"]')
+
+  const alpha = projectRows.filter({ hasText: "Cozy unpin alpha" })
+  await alpha.hover()
+  await alpha.getByRole("button", { name: "Pin", exact: true }).click()
+
+  const pinnedRows = pinned.locator('[data-slot="sidebar-cozy-row"]')
+  await expect(pinnedRows).toHaveText([/Cozy unpin alpha/])
+  await expect(projectRows).toHaveText([/Cozy unpin beta/, /Cozy unpin gamma/])
+
+  await dragCozyRow(page, pinnedRows.filter({ hasText: "Cozy unpin alpha" }), projectRows.filter({ hasText: "Cozy unpin beta" }))
+
+  await expect(pinned).toHaveCount(0)
+  await expect(projectRows).toHaveText([/Cozy unpin beta/, /Cozy unpin alpha/, /Cozy unpin gamma/])
+  await page.reload()
+  await sidebar.getByRole("button", { name: "Projects", exact: true }).click()
+  await expect(projectRows).toHaveText([/Cozy unpin beta/, /Cozy unpin alpha/, /Cozy unpin gamma/])
+})
+
+test("the Cozy sidebar pins a session on an empty Pinned tail", async ({ page }) => {
+  await mockWorkspace(page, {
+    name: "CozyEmptyPinned",
+    project: { vcs: undefined },
+    sessions: ["alpha", "beta", "gamma"].map((name, index) => ({
+      id: `ses_cozy_empty_${name}`,
+      title: `Empty ${name}`,
+      time: { created: T0, updated: T0 + (index + 1) * 100, recency: T0 + (index + 1) * 100 },
+    })),
+    seed: { settings: { appearance: { tabLayout: "cozy" } } },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+
+  const recentRows = sidebar
+    .locator('[role="group"][aria-labelledby="sidebar-cozy-recent"]')
+    .locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+
+  await expect(recentRows).toHaveText([/gamma/, /beta/, /alpha/])
+
+  await dragCozyRowToTail(
+    page,
+    recentRows.filter({ hasText: "Empty alpha" }),
+    sidebar.locator('[data-slot="sidebar-cozy-drop-tail"][data-group="pinned"]'),
+  )
+
+  const pinnedRows = sidebar
+    .locator('[role="group"][aria-labelledby="sidebar-cozy-pinned"]')
+    .locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+
+  await expect(pinnedRows).toHaveText([/Empty alpha/])
+  await expect(recentRows).toHaveText([/gamma/, /beta/])
+  await page.reload()
+  await expect(pinnedRows).toHaveText([/Empty alpha/])
+  await expect(recentRows).toHaveText([/gamma/, /beta/])
+})
+
+test("the Cozy sidebar ignores drops between incompatible groups", async ({ page }) => {
+  const betaDirectory = "C:/OpenCode/CozyInvalidBeta"
+
+  await mockWorkspace(page, {
+    name: "CozyInvalid",
+    project: { id: "proj_cozy_invalid", vcs: undefined },
+    projects: [
+      project({ id: "proj_cozy_invalid", directory: "C:/OpenCode/CozyInvalid", name: "CozyInvalid", vcs: undefined }),
+      project({
+        id: "proj_cozy_invalid_beta",
+        directory: betaDirectory,
+        name: "Cozy invalid beta",
+        vcs: undefined,
+        time: { created: T0 + 1000, updated: T0 + 1000, active: T0 + 1000 },
+      }),
+    ],
+    sessions: [
+      { id: "ses_cozy_invalid_anchor", title: "Invalid anchor" },
+      { id: "ses_cozy_invalid_other", title: "Invalid other" },
+      { id: "ses_cozy_invalid_beta", title: "Invalid beta session", directory: betaDirectory, projectID: "proj_cozy_invalid_beta" },
+    ],
+    seed: {
+      settings: { appearance: { tabLayout: "cozy" } },
+      usedProjects: { local: ["proj_cozy_invalid", "proj_cozy_invalid_beta"] },
+    },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+
+  const recentRows = sidebar
+    .locator('[role="group"][aria-labelledby="sidebar-cozy-recent"]')
+    .locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+
+  const anchor = recentRows.filter({ hasText: "Invalid anchor" })
+  await anchor.hover()
+  await anchor.getByRole("button", { name: "Pin", exact: true }).click()
+
+  await sidebar.getByRole("button", { name: "Projects", exact: true }).click()
+  const projectGroup = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-projects"]')
+  const projectRows = projectGroup.locator('[data-slot="sidebar-cozy-row"][data-kind="project"]')
+  const beta = projectRows.filter({ hasText: "Cozy invalid beta" })
+  await beta.hover()
+  await beta.getByRole("button", { name: "Pin", exact: true }).click()
+
+  const pinned = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-pinned"]')
+  const pinnedRows = pinned.locator('[data-slot="sidebar-cozy-row"]')
+  await expect(pinnedRows).toHaveText([/Invalid anchor/, /Cozy invalid beta/])
+
+  // A session cannot join the project group, and a project cannot join Recent.
+  await dragCozyRow(page, pinnedRows.filter({ hasText: "Invalid anchor" }), projectRows.filter({ hasText: "CozyInvalid" }))
+  await expect(pinnedRows).toHaveText([/Invalid anchor/, /Cozy invalid beta/])
+
+  await dragCozyRow(page, pinnedRows.filter({ hasText: "Cozy invalid beta" }), recentRows.filter({ hasText: "Invalid other" }))
+  await expect(pinnedRows).toHaveText([/Invalid anchor/, /Cozy invalid beta/])
+  await expect(projectRows).toHaveText([/CozyInvalid/])
+
+  await page.reload()
+  await expect(pinnedRows).toHaveText([/Invalid anchor/, /Cozy invalid beta/])
+})
+
+test("the Cozy sidebar keeps every alias of a pinned session when another session joins the tail", async ({ page }) => {
+  const aliasA = `${SERVER}\u0000ses_cozy_alias_a`
+  const sidecarA = `sidecar\u0000ses_cozy_alias_a`
+  const aliasB = `${SERVER}\u0000ses_cozy_alias_b`
+
+  await mockWorkspace(page, {
+    name: "CozyAlias",
+    project: { vcs: undefined },
+    sessions: [
+      { id: "ses_cozy_alias_a", title: "Alias alpha", time: { created: T0, updated: T0 + 100, recency: T0 + 100 } },
+      { id: "ses_cozy_alias_b", title: "Alias beta", time: { created: T0, updated: T0 + 200, recency: T0 + 200 } },
+      { id: "ses_cozy_alias_c", title: "Alias gamma", time: { created: T0, updated: T0 + 300, recency: T0 + 300 } },
+    ],
+    seed: {
+      settings: { appearance: { tabLayout: "cozy" } },
+      storage: { "opencode.global.dat:sidebar.recent": { pins: [aliasA, sidecarA, aliasB] } },
+    },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+
+  const pinnedRows = sidebar
+    .locator('[role="group"][aria-labelledby="sidebar-cozy-pinned"]')
+    .locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+
+  const recentRows = sidebar
+    .locator('[role="group"][aria-labelledby="sidebar-cozy-recent"]')
+    .locator('[data-slot="sidebar-cozy-row"][data-kind="session"]')
+
+  await expect(pinnedRows).toHaveText([/Alias alpha/, /Alias beta/])
+
+  await dragCozyRowToTail(
+    page,
+    recentRows.filter({ hasText: "Alias gamma" }),
+    sidebar.locator('[data-slot="sidebar-cozy-drop-tail"][data-group="pinned"]'),
+  )
+
+  await expect(pinnedRows).toHaveText([/Alias alpha/, /Alias beta/, /Alias gamma/])
+  await expect
+    .poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("opencode.global.dat:sidebar.recent") ?? "{}").pins))
+    .toEqual([aliasA, sidecarA, aliasB, `${SERVER}\u0000ses_cozy_alias_c`])
+
+  await page.reload()
+  await expect(pinnedRows).toHaveText([/Alias alpha/, /Alias beta/, /Alias gamma/])
+})
+
+test("the Cozy sidebar reorders pinned projects and sessions without dropping each other", async ({ page }) => {
+  const projectKey = `${SERVER}\u0000C:/OpenCode/CozyMixed`
+
+  await mockWorkspace(page, {
+    name: "CozyMixed",
+    project: { vcs: undefined },
+    sessions: [
+      { id: "ses_cozy_mixed_a", title: "Mixed alpha" },
+      { id: "ses_cozy_mixed_b", title: "Mixed beta" },
+    ],
+    seed: {
+      settings: { appearance: { tabLayout: "cozy" } },
+      storage: {
+        "opencode.global.dat:sidebar.recent": {
+          pins: [`${SERVER}\u0000ses_cozy_mixed_a`, `${SERVER}\u0000ses_cozy_mixed_b`],
+          cozy: [`p:${projectKey}`, `s:${SERVER}\u0000ses_cozy_mixed_a`, `s:${SERVER}\u0000ses_cozy_mixed_b`],
+        },
+      },
+    },
+  })
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const pinned = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-pinned"]')
+  const pinnedRows = pinned.locator('[data-slot="sidebar-cozy-row"]')
+  await expect(pinnedRows).toHaveText([/CozyMixed/, /Mixed alpha/, /Mixed beta/])
+
+  await dragCozyRow(page, pinnedRows.filter({ hasText: "Mixed beta" }), pinnedRows.filter({ hasText: "CozyMixed" }))
+  await expect(pinnedRows).toHaveText([/Mixed beta/, /CozyMixed/, /Mixed alpha/])
+
+  await dragCozyRowToTail(
+    page,
+    pinnedRows.filter({ hasText: "CozyMixed" }),
+    sidebar.locator('[data-slot="sidebar-cozy-drop-tail"][data-group="pinned"]'),
+  )
+  await expect(pinnedRows).toHaveText([/Mixed beta/, /Mixed alpha/, /CozyMixed/])
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const stored = JSON.parse(localStorage.getItem("opencode.global.dat:sidebar.recent") ?? "{}")
+
+        return { pins: stored.pins, cozy: stored.cozy }
+      }),
+    )
+    .toEqual({
+      pins: [`${SERVER}\u0000ses_cozy_mixed_b`, `${SERVER}\u0000ses_cozy_mixed_a`],
+      cozy: [`s:sidecar\u0000ses_cozy_mixed_b`, `s:sidecar\u0000ses_cozy_mixed_a`, `p:${projectKey}`],
+    })
+
+  await page.reload()
+  await expect(pinnedRows).toHaveText([/Mixed beta/, /Mixed alpha/, /CozyMixed/])
+})
+
 test("the Cozy sidebar shows recent sessions on one 28px row", async ({ page }) => {
   await mockWorkspace(page, {
     name: "Cozy",
