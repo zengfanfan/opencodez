@@ -16,7 +16,7 @@ const RECENCY_SESSION_LIMIT = 512
 // Times returned by apply() are projections. Remember their raw server value so remember() never stores the bump.
 const syntheticTimes = new WeakMap<SessionInfo["time"], number>()
 
-// A completed execution refreshes the session's server record so the list follows the server's `time.updated`.
+// A completed execution refreshes the session's server record so lists see the completed run's idle/updated state.
 const SESSION_EXECUTION_ENDED = [
   "session.execution.succeeded",
   "session.execution.failed",
@@ -56,6 +56,18 @@ export function createDesktopData(input: { data: Data; remove: (sessionID: strin
         })
       }),
     ),
+  )
+
+  // A user prompt advances recency on the server. Steer/queued prompts do not start a new run, so refresh the record
+  // here, including rows that only exist in a fetched list. The coalescer keeps a burst to one active plus one follow-up.
+  onCleanup(
+    input.data.on("session.inbox.enqueued", (event) => {
+      if (event.data.item.type !== "user") return
+
+      if (input.data.session.get(event.data.sessionID)?.parentID) return
+
+      queueMicrotask(() => refresh(event.data.sessionID))
+    }),
   )
 
   function session(sessionID: string) {

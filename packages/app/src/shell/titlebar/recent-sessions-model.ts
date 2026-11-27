@@ -1,6 +1,6 @@
 import type { OpenCodeEvent, SessionInfo } from "@opencode/client/promise"
 import { ServerConnection } from "@/runtime/server/registry"
-import { sessionActivity, sessionRecency } from "@/session/time"
+import { newerTime, sessionActivity, sessionRecency } from "@/session/time"
 
 const separator = "\u0000"
 
@@ -372,9 +372,9 @@ export function recentPageHasMore(state: RecentPageState | undefined) {
 /**
  * One server's fetched pages plus the live store, keeping root, unarchived sessions. Live entries supply every field
  * except `time.updated`: a fetched row keeps the time from its page until the next reload, so steps, renames and
- * model or agent changes never reorder it. A session created since the last reload uses its live time. One that
- * existed then but is outside the loaded pages was older than all of them, so it never ranks above them before a
- * reload includes it, even when the live store loaded it with a newer time (a rename from another client).
+ * model or agent changes never reorder it. The newer recency wins on either side, so another client's prompt (or a
+ * stale page) cannot hide it. A session created since the last reload uses its live time. One that existed then but
+ * is outside the loaded pages was older than all of them, so it never ranks above them before a reload includes it.
  * `apply` adds the local send bump.
  */
 export function mergeRecentSessions(
@@ -384,6 +384,7 @@ export function mergeRecentSessions(
   apply: (rows: SessionInfo[]) => SessionInfo[] = (rows) => rows,
 ) {
   const snapshot = new Map(fetched.map((info) => [info.id, info.time.updated]))
+  const snapshotRecency = new Map(fetched.map((info) => [info.id, info.time.recency]))
   const rows = new Map(fetched.map((info) => [info.id, info]))
   const newest = fetched.reduce((value, info) => Math.max(value, info.time.updated), -Infinity)
   const oldest = fetched.reduce((value, info) => Math.min(value, info.time.updated), Infinity)
@@ -391,6 +392,13 @@ export function mergeRecentSessions(
   for (const info of known) {
     const updated =
       snapshot.get(info.id) ?? (info.time.created <= newest ? Math.min(info.time.updated, oldest) : info.time.updated)
+
+    const recency = newerTime(info.time.recency, snapshotRecency.get(info.id))
+
+    if (recency !== info.time.recency) {
+      rows.set(info.id, { ...info, time: { ...info.time, updated, recency } })
+      continue
+    }
 
     rows.set(info.id, updated === info.time.updated ? info : { ...info, time: { ...info.time, updated } })
   }

@@ -4,6 +4,7 @@ import type { LocalProject } from "@/shell/state/layout"
 import { buildHomeSessionRecords, homeSessionLocation } from "./records"
 
 const session = (id: string, directory: string, projectID: string) =>
+  // SAFETY: the fixture supplies the session fields the record builder reads.
   ({
     id,
     projectID,
@@ -13,6 +14,7 @@ const session = (id: string, directory: string, projectID: string) =>
   }) as SessionInfo
 
 describe("buildHomeSessionRecords", () => {
+  // SAFETY: the fixture supplies the project fields the record builder reads.
   const opened = { id: "project-a", worktree: "/repo/a" } as LocalProject
   const sessions = [session("a", "/repo/a", "project-a"), session("b", "/repo/b", "project-b")]
 
@@ -49,6 +51,7 @@ describe("buildHomeSessionRecords", () => {
   })
 
   test("prefers the added project whose directory matches over a sibling entry with the same ID", () => {
+    // SAFETY: the fixture supplies the project fields the record builder reads.
     const nested = { id: "project-a", worktree: "/repo/a/packages/app" } as LocalProject
 
     const records = buildHomeSessionRecords({
@@ -60,19 +63,38 @@ describe("buildHomeSessionRecords", () => {
     expect(records[0]?.project.worktree).toBe("/repo/a/packages/app")
   })
 
-  test("orders by update time and uses the id only to break equal timestamps", () => {
-    const at = (id: string, updated: number) => ({
+  test("orders by the last user prompt and uses the id only to break equal recency", () => {
+    const at = (id: string, time: { created: number; updated: number; recency?: number }) => ({
       ...session(id, "/repo/a", "project-a"),
-      time: { created: 1, updated },
+      time,
     })
 
     const records = buildHomeSessionRecords({
-      sessions: () => [at("ses_z", 2), at("ses_old", 1), at("ses_a", 2)],
+      sessions: () => [
+        at("ses_z", { created: 1, updated: 2, recency: 2 }),
+        at("ses_old", { created: 1, updated: 1, recency: 1 }),
+        at("ses_a", { created: 1, updated: 2, recency: 2 }),
+      ],
       projectDirectories: () => undefined,
       projects: () => [opened],
     })
 
     expect(records.map((record) => record.session.id)).toEqual(["ses_a", "ses_z", "ses_old"])
+  })
+
+  test("does not order by update time when the server has no recency", () => {
+    const at = (id: string, created: number, updated: number) => ({
+      ...session(id, "/repo/a", "project-a"),
+      time: { created, updated },
+    })
+
+    const records = buildHomeSessionRecords({
+      sessions: () => [at("a", 1, 100), at("z", 2, 2)],
+      projectDirectories: () => undefined,
+      projects: () => [opened],
+    })
+
+    expect(records.map((record) => record.session.id)).toEqual(["z", "a"])
   })
 })
 

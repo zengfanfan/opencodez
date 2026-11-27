@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { getEventListeners } from "node:events"
 import { createRoot, createSignal } from "solid-js"
-import { createData, type CreateDataInput } from "../src/solid"
+import { compareSessionRecency, createData, type CreateDataInput } from "../src/solid"
 import { OpenCode, type ModelInfo, type OpenCodeEvent, type Project, type SessionInfo } from "../src/promise"
 
 const session = (viewed: number): SessionInfo => ({
@@ -1790,3 +1790,20 @@ async function wait(check: () => boolean) {
     await Bun.sleep(10)
   }
 }
+
+test("session order follows the last user prompt, not the last activity", () => {
+  const make = (id: string, time: SessionInfo["time"]) => ({ ...session(0), id, time })
+  const olderPrompt = make("ses_a", { created: 1, updated: 100 })
+  const newerCreated = make("ses_z", { created: 2, updated: 2 })
+
+  expect([olderPrompt, newerCreated].toSorted(compareSessionRecency).map((item) => item.id)).toEqual([
+    "ses_z",
+    "ses_a",
+  ])
+
+  const moreActivity = make("ses_a", { created: 1, updated: 200 })
+  expect([moreActivity, newerCreated].toSorted(compareSessionRecency).map((item) => item.id)).toEqual([
+    "ses_z",
+    "ses_a",
+  ])
+})

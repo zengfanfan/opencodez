@@ -277,6 +277,11 @@ function createSync() {
 const CHILD_PAGE = 200
 const DELETED_SESSION_LIMIT = 512
 
+/** Session list order: the last user prompt, falling back to creation for rows written by older servers. */
+export function compareSessionRecency(a: SessionInfo, b: SessionInfo) {
+  return (b.time.recency ?? b.time.created) - (a.time.recency ?? a.time.created)
+}
+
 export function createData(config: CreateDataInput) {
   const api = config.api
   let disposed = false
@@ -350,11 +355,13 @@ export function createData(config: CreateDataInput) {
   })
 
   const [defaultLocation, setDefaultLocation] = createSignal<LocationRef>({ directory: config.directory })
-  const sessions = createMemo(() =>
-    Object.values(store.session.info).toSorted(
-      (a, b) => (b.time.recency ?? b.time.updated ?? b.time.created) - (a.time.recency ?? a.time.updated ?? a.time.created),
-    ),
-  )
+  // Solid's store proxy does not invalidate `Object.values` when a key is added or removed, so track the key set.
+  const [sessionVersion, setSessionVersion] = createSignal(0)
+  const sessions = createMemo(() => {
+    sessionVersion()
+
+    return Object.values(store.session.info).toSorted(compareSessionRecency)
+  })
   const messageIndex = new Map<string, Map<string, number>>()
   const omitFiles = () =>
     typeof config.omitToolFileData === "function" ? config.omitToolFileData() : config.omitToolFileData === true
@@ -738,6 +745,7 @@ export function createData(config: CreateDataInput) {
         }
       }),
     )
+    setSessionVersion((value) => value + 1)
   }
 
   function handleEvent(event: OpenCodeEvent) {
@@ -1563,6 +1571,7 @@ export function createData(config: CreateDataInput) {
           setStore("session", "info", info.id, reconcile(info))
           sync.complete(`session:${info.id}`)
           registerSession(info.id)
+          setSessionVersion((value) => value + 1)
         })
       },
       setStatus(sessionID: string, status: DataSessionStatus) {
@@ -1847,6 +1856,7 @@ export function createData(config: CreateDataInput) {
               sync.complete(`session:${session.id}`)
               registerSession(session.id)
             }
+            setSessionVersion((value) => value + 1)
           })
         })
       },

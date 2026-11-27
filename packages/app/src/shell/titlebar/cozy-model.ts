@@ -65,22 +65,49 @@ function compareSessions(a: CozySession, b: CozySession) {
   return a.entry.session.id.localeCompare(b.entry.session.id)
 }
 
-/** Stored Recent order first; sessions it does not know yet appear at the top by recency. */
+/**
+ * Stored Recent order first. A session missing from it is either new or was loaded late: only a recency strictly
+ * newer than every stored row earns the top; older rows append after the stored order.
+ */
 export function orderRecent(items: readonly CozySession[], order: readonly string[]) {
-  const sorted = [...items].sort(compareSessions)
-  const positions = new Map(order.map((key, index) => [key, index] as const))
-  const fresh = sorted.filter((item) => !positions.has(item.key))
+  // Dedupe by key first, keeping the first occurrence. Endpoint aliases can produce the same key twice.
+  const unique: CozySession[] = []
+  const itemKeys = new Set<string>()
 
-  const kept = sorted
-    .filter((item) => positions.has(item.key))
-    .sort((a, b) => positions.get(a.key)! - positions.get(b.key)!)
+  for (const item of items) {
+    if (itemKeys.has(item.key)) continue
+    itemKeys.add(item.key)
+    unique.push(item)
+  }
 
-  return [...fresh, ...kept]
+  const itemByKey = new Map(unique.map((item) => [item.key, item] as const))
+  const kept: CozySession[] = []
+  const keptKeys = new Set<string>()
+
+  for (const key of order) {
+    const item = itemByKey.get(key)
+
+    if (!item || keptKeys.has(key)) continue
+    keptKeys.add(key)
+    kept.push(item)
+  }
+
+  const fresh = unique.filter((item) => !keptKeys.has(item.key)).sort(compareSessions)
+
+  const newestKept = kept.reduce(
+    (newest, item) => Math.max(newest, sessionRecency(item.entry.session)),
+    Number.NEGATIVE_INFINITY,
+  )
+
+  const top = fresh.filter((item) => sessionRecency(item.entry.session) > newestKept)
+  const tail = fresh.filter((item) => sessionRecency(item.entry.session) <= newestKept)
+
+  return [...top, ...kept, ...tail]
 }
 
 /**
- * Sessions that should move to the front: new ones, and known ones whose last user prompt advanced.
- * Rows without a real recency (older servers) never move on activity alone.
+ * Sessions that should move to the front: known ones whose last user prompt advanced. New or late-loaded rows are
+ * placed by `orderRecent`, never persisted to the front.
  */
 export function bumpedRecent(
   known: ReadonlySet<string>,
@@ -89,16 +116,24 @@ export function bumpedRecent(
 ) {
   return list
     .filter((item) => {
-      if (!known.has(item.key)) return true
-
-      if (item.recency === undefined) return false
-
+      if (!known.has(item.key) || item.recency === undefined) return false
       const previous = seen.get(item.key)
 
       return previous !== undefined && item.recency > previous
     })
     .sort((a, b) => (b.recency ?? 0) - (a.recency ?? 0))
     .map((item) => item.key)
+}
+
+/** Remembers the highest recency each row has shown, so a temporary dip cannot look like a new prompt. */
+export function rememberRecentRecency(
+  seen: Map<string, number>,
+  list: readonly { key: string; recency: number | undefined }[],
+) {
+  for (const item of list) {
+    if (item.recency === undefined) continue
+    seen.set(item.key, Math.max(seen.get(item.key) ?? item.recency, item.recency))
+  }
 }
 
 /** Groups sessions into pinned, per-project, and recent lists. */

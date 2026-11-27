@@ -131,15 +131,24 @@ test("treats SessionNotFoundError on removal as already deleted", async () => {
   expect(mutation.apply([session])).toEqual([])
 })
 
-test("passive session events do not promote a session", () => {
-  const setup = setupDesktop(async () => Response.json({ data: { ...session, time: { created: 0, updated: 10 } } }))
+test("passive session events do not promote a session", async () => {
+  let gets = 0
+
+  const setup = setupDesktop(async () => {
+    gets++
+
+    return Response.json({ data: { ...session, time: { created: 0, updated: 10 } } })
+  })
 
   try {
     setup.seed(10)
+    const before = gets
     setup.emit("session.inbox.enqueued", 51, {
       inboxID: "msg_input",
-      item: { type: "user", payload: { text: "Hello" }, delivery: "steer" },
+      item: { type: "compaction", payload: {}, delivery: "steer" },
     })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(gets).toBe(before)
     setup.emit("session.step.started", 52, {
       assistantMessageID: "msg_assistant",
       agent: "build",
@@ -169,7 +178,157 @@ test("passive session events do not promote a session", () => {
   }
 })
 
-test("after a reload, Recent shows the order a restarted window shows for the same server data", () => {
+test("a user inbox item refreshes the session so its recency reaches the live store", async () => {
+  let gets = 0
+  const requested = Promise.withResolvers<void>()
+  const refreshed = { ...session, time: { created: 0, updated: 10, recency: 50 } }
+
+  const setup = setupDesktop(async (input) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString())
+
+    if (url.pathname !== `/api/session/${session.id}`) return Response.json({ data: [] })
+    gets++
+    requested.resolve()
+
+    return Response.json({ data: refreshed })
+  })
+
+  try {
+    setup.seed(10)
+    setup.emit("session.inbox.enqueued", 51, {
+      inboxID: "msg_user",
+      item: { type: "user", payload: { text: "Hello" }, delivery: "steer" },
+    })
+    await requested.promise
+    await setup.data.session.sync(session.id)
+
+    expect(gets).toBe(1)
+    expect(setup.data.session.get(session.id)?.time.recency).toBe(50)
+  } finally {
+    setup.dispose()
+  }
+})
+
+test("a user inbox item refreshes a session that was never loaded", async () => {
+  const requested = Promise.withResolvers<void>()
+
+  const setup = setupDesktop(async (input) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString())
+
+    if (url.pathname !== `/api/session/${session.id}`) return Response.json({ data: [] })
+    requested.resolve()
+
+    return Response.json({ data: { ...session, time: { created: 0, updated: 10, recency: 50 } } })
+  })
+
+  try {
+    setup.emit("session.inbox.enqueued", 51, {
+      inboxID: "msg_user",
+      item: { type: "user", payload: { text: "Hello" }, delivery: "steer" },
+    })
+    await requested.promise
+    await setup.data.session.sync(session.id)
+
+    expect(setup.data.session.get(session.id)?.time.recency).toBe(50)
+  } finally {
+    setup.dispose()
+  }
+})
+
+test("a user inbox item does not refresh a loaded child session", async () => {
+  let gets = 0
+
+  const setup = setupDesktop(async () => {
+    gets++
+
+    return Response.json({ data: session })
+  })
+
+  try {
+    setup.data.session.remember({ ...session, parentID: "ses_parent" })
+    setup.emit("session.inbox.enqueued", 51, {
+      inboxID: "msg_user",
+      item: { type: "user", payload: { text: "Hello" }, delivery: "steer" },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(gets).toBe(0)
+  } finally {
+    setup.dispose()
+  }
+})
+
+test("compaction, synthetic and move inbox items do not refresh", async () => {
+  let gets = 0
+
+  const setup = setupDesktop(async () => {
+    gets++
+
+    return Response.json({ data: session })
+  })
+
+  try {
+    setup.seed(10)
+    setup.emit("session.inbox.enqueued", 51, {
+      inboxID: "msg_compaction",
+      item: { type: "compaction", payload: {}, delivery: "steer" },
+    })
+    setup.emit("session.inbox.enqueued", 52, {
+      inboxID: "msg_synthetic",
+      item: { type: "synthetic", payload: { text: "Shell output" }, delivery: "steer" },
+    })
+    setup.emit("session.inbox.enqueued", 53, {
+      inboxID: "msg_move",
+      item: { type: "move", payload: { location: { directory: "/project" }, projectID: "project" }, delivery: "steer" },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(gets).toBe(0)
+  } finally {
+    setup.dispose()
+  }
+})
+
+test("a burst of user inbox items refreshes once with one follow-up", async () => {
+  let gets = 0
+  const first = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  const refreshed = { ...session, time: { created: 0, updated: 10, recency: 50 } }
+
+  const setup = setupDesktop(async (input) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString())
+
+    if (url.pathname !== `/api/session/${session.id}`) return Response.json({ data: [] })
+    gets++
+
+    if (gets === 1) {
+      first.resolve()
+      await release.promise
+    }
+
+    return Response.json({ data: refreshed })
+  })
+
+  try {
+    setup.seed(10)
+
+    for (let index = 0; index < 3; index++)
+      setup.emit("session.inbox.enqueued", 51 + index, {
+        inboxID: `msg_user_${index}`,
+        item: { type: "user", payload: { text: "Hello" }, delivery: "steer" },
+      })
+
+    await first.promise
+    release.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(gets).toBe(2)
+  } finally {
+    setup.dispose()
+  }
+})
+
+test("a reload does not promote a renamed session by its updated time", () => {
   const other = { ...session, id: "ses_other", time: { created: 0, updated: 20 } }
   const running = setupDesktop(async () => Response.json({ data: session }))
   const restarted = setupDesktop(async () => Response.json({ data: session }))
@@ -180,7 +339,7 @@ test("after a reload, Recent shows the order a restarted window shows for the sa
     ).map((entry) => entry.session.id)
 
   try {
-    // The running window renamed the session, which advanced its server time. It keeps its row until a reload.
+    // The running window renamed the session, which advanced its server time but not its recency. A reload must not promote it.
     running.seed(10)
     running.emit("session.renamed", 30, { title: "Renamed" })
     expect(order(running, [other, { ...session, time: { created: 0, updated: 10 } }])).toEqual([
@@ -190,8 +349,8 @@ test("after a reload, Recent shows the order a restarted window shows for the sa
 
     const reloaded = [{ ...session, title: "Renamed", time: { created: 0, updated: 30 } }, other]
     restarted.seed(30)
-    expect(order(running, reloaded)).toEqual([session.id, "ses_other"])
-    expect(order(restarted, reloaded)).toEqual([session.id, "ses_other"])
+    expect(order(running, reloaded)).toEqual(["ses_other", session.id])
+    expect(order(restarted, reloaded)).toEqual(["ses_other", session.id])
   } finally {
     running.dispose()
     restarted.dispose()

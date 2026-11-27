@@ -6,6 +6,7 @@ import { ServerConnection, useServers } from "@/runtime/server/registry"
 import { isServerFailed } from "@/runtime/server/health-machine"
 import { useTabs } from "@/shell/tabs/tabs"
 import { createKnownServerSessions, createServerSessionEntries, type CommandPaletteEntry } from "./palette"
+import { rankCommandPaletteEntries } from "./search"
 import { CommandPaletteView } from "./dialog"
 import { errorMessage } from "@/shell/layout/helpers"
 import { showToast } from "@/shell/notifications/toast"
@@ -71,9 +72,10 @@ export function DialogSessionSearch(props: { archived?: boolean }) {
   })
 
   const items = (query: string) => {
-    const entries = loaders
-      .flatMap((loader) => loader.items(query))
-      .toSorted((a, b) => (b.updated ?? 0) - (a.updated ?? 0))
+    const entries = rankCommandPaletteEntries(
+      loaders.flatMap((loader) => loader.items(query)),
+      () => false,
+    )
 
     return query ? entries : entries.slice(0, RECENT_LIMIT)
   }

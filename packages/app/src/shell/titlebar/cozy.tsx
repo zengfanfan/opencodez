@@ -25,6 +25,7 @@ import {
   cozyProjectKey,
   cozyProjectOrder,
   pageSlice,
+  rememberRecentRecency,
   reorderCozyPins,
   reorderProjectOrder,
   type CozyItem,
@@ -231,11 +232,8 @@ export function SidebarCozy() {
     if (!recentSeeded) {
       if (list.length === 0) return
 
-      for (const item of list) {
-        knownRecent.add(item.key)
-
-        if (item.recency !== undefined) seenRecent.set(item.key, item.recency)
-      }
+      for (const item of list) knownRecent.add(item.key)
+      rememberRecentRecency(seenRecent, list)
 
       recentSeeded = true
 
@@ -244,11 +242,8 @@ export function SidebarCozy() {
 
     const front = bumpedRecent(knownRecent, seenRecent, list)
 
-    for (const item of list) {
-      knownRecent.add(item.key)
-
-      if (item.recency !== undefined) seenRecent.set(item.key, item.recency)
-    }
+    for (const item of list) knownRecent.add(item.key)
+    rememberRecentRecency(seenRecent, list)
 
     if (front.length > 0) sessionPins.moveRecentToFront(front)
   })

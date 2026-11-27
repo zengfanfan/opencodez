@@ -12,6 +12,7 @@ import {
   cozyProjectOrder,
   orderRecent,
   pageSlice,
+  rememberRecentRecency,
   reorderCozyPins,
   reorderProjectOrder,
   type CozyProjectInfo,
@@ -30,20 +31,36 @@ const project = (id: string, worktree: string, created: number, vcs: string | "n
     sandboxes: [],
   }) as unknown as Project
 
-const entry = (id: string, updated: number, server = "sidecar", status: InboxStatus = "ready") =>
-  ({
+const entry = (
+  id: string,
+  updated: number,
+  server = "sidecar",
+  status: InboxStatus = "ready",
+  recency: number | "updated" | "none" = "updated",
+  created = updated,
+) => {
+  // An omitted recency models a prompt at `updated`; "none" models an older server row without one.
+  let value: number | undefined
+
+  if (recency === "updated") value = updated
+  else if (recency !== "none") value = recency
+
+  const time = { created, updated, recency: value }
+
+  return {
     key: `${server}\u0000${id}`,
     server: server as ServerConnection.Key,
     session: {
       id,
       title: id,
       projectID: "p",
-      time: { created: updated, updated },
+      time,
       location: { directory: "/p" },
     },
     status,
     since: updated,
-  }) as unknown as InboxEntry
+  } as unknown as InboxEntry
+}
 
 const info = (projectValue: Project): CozyProjectInfo => ({
   key: cozyProjectKey("sidecar" as ServerConnection.Key, projectValue.worktree),
@@ -124,46 +141,104 @@ describe("cozyPlacement", () => {
 })
 
 describe("orderRecent", () => {
-  const sessions = (): CozySession[] =>
-    ["a", "b", "c"].map((id, index) => ({ key: `${"sidecar"}\u0000${id}`, entry: entry(id, 30 - index * 10), pinned: false }))
+  const session = (
+    id: string,
+    recency: number | undefined,
+    updated = recency ?? 0,
+    created = recency ?? updated,
+  ): CozySession => ({
+    key: `sidecar\u0000${id}`,
+    entry: entry(id, updated, "sidecar", "ready", recency === undefined ? "none" : recency, created),
+    pinned: false,
+  })
 
-  test("keeps the stored order and puts sessions it does not know at the top", () => {
-    const items = sessions()
+  const sessions = (): CozySession[] => [session("a", 30), session("b", 20), session("c", 10)]
+  const ids = (items: readonly CozySession[]) => items.map((item) => item.entry.session.id)
 
-    expect(orderRecent(items, ["sidecar\u0000c", "sidecar\u0000a"]).map((item) => item.entry.session.id)).toEqual([
-      "b",
+  test("keeps the stored order and appends a late-loaded row", () => {
+    expect(ids(orderRecent(sessions(), ["sidecar\u0000c", "sidecar\u0000a"]))).toEqual(["c", "a", "b"])
+  })
+
+  test("a new row newer than every stored row goes to the top", () => {
+    expect(ids(orderRecent([...sessions(), session("d", 40)], ["sidecar\u0000c", "sidecar\u0000a"]))).toEqual([
+      "d",
       "c",
       "a",
+      "b",
     ])
   })
 
   test("a stored order wins over recency", () => {
-    const items = sessions()
-
-    expect(orderRecent(items, ["sidecar\u0000a", "sidecar\u0000b", "sidecar\u0000c"]).map((item) => item.entry.session.id)).toEqual([
+    expect(ids(orderRecent(sessions(), ["sidecar\u0000a", "sidecar\u0000b", "sidecar\u0000c"]))).toEqual([
       "a",
       "b",
       "c",
+    ])
+  })
+
+  test("an empty stored order sorts by recency", () => {
+    expect(ids(orderRecent(sessions(), []))).toEqual(["a", "b", "c"])
+  })
+
+  test("stored keys that are no longer present are skipped", () => {
+    expect(
+      ids(orderRecent(sessions(), ["sidecar\u0000missing", "sidecar\u0000c", "sidecar\u0000a"])),
+    ).toEqual(["c", "a", "b"])
+  })
+
+  test("a duplicate key keeps the first occurrence", () => {
+    const items = [session("a", 30), session("b", 20), session("b", 99)]
+
+    expect(ids(orderRecent(items, []))).toEqual(["a", "b"])
+    expect(ids(orderRecent(items, ["sidecar\u0000b"]))).toEqual(["a", "b"])
+    expect(orderRecent(items, ["sidecar\u0000b"])[1]?.entry.session.time.recency).toBe(20)
+  })
+
+  test("a row without recency orders by creation, not updated", () => {
+    const legacy = session("legacy", undefined, 900, 1)
+
+    expect(ids(orderRecent([session("a", 30), legacy, session("c", 10)], []))).toEqual(["a", "c", "legacy"])
+  })
+
+  test("a tie with the newest stored row appends", () => {
+    expect(ids(orderRecent([...sessions(), session("d", 30)], ["sidecar\u0000c", "sidecar\u0000a"]))).toEqual([
+      "c",
+      "a",
+      "d",
+      "b",
     ])
   })
 })
 
 describe("bumpedRecent", () => {
-  test("returns new and newly prompted sessions, newest first", () => {
-    const known = new Set(["sidecar\u0000a", "sidecar\u0000b"])
+  test("returns known sessions whose recency advanced, newest first", () => {
+    const known = new Set(["sidecar\u0000a", "sidecar\u0000b", "sidecar\u0000c"])
 
     const seen = new Map([
       ["sidecar\u0000a", 10],
       ["sidecar\u0000b", 20],
+      ["sidecar\u0000c", 5],
     ])
 
     expect(
       bumpedRecent(known, seen, [
-        { key: "sidecar\u0000a", recency: 10 },
-        { key: "sidecar\u0000b", recency: 30 },
-        { key: "sidecar\u0000c", recency: 25 },
+        { key: "sidecar\u0000a", recency: 30 },
+        { key: "sidecar\u0000b", recency: 40 },
+        { key: "sidecar\u0000c", recency: 6 },
       ]),
-    ).toEqual(["sidecar\u0000b", "sidecar\u0000c"])
+    ).toEqual(["sidecar\u0000b", "sidecar\u0000a", "sidecar\u0000c"])
+  })
+
+  test("a new row is never bumped", () => {
+    const known = new Set(["sidecar\u0000a"])
+    const seen = new Map([["sidecar\u0000a", 10]])
+
+    expect(
+      bumpedRecent(known, seen, [
+        { key: "sidecar\u0000a", recency: 10 },
+        { key: "sidecar\u0000new", recency: 999 },
+      ]),
+    ).toEqual([])
   })
 
   test("activity-only rows without a real recency never move", () => {
@@ -171,6 +246,19 @@ describe("bumpedRecent", () => {
     const seen = new Map<string, number>()
 
     expect(bumpedRecent(known, seen, [{ key: "sidecar\u0000a", recency: undefined }])).toEqual([])
+  })
+})
+
+describe("rememberRecentRecency", () => {
+  test("keeps the highest recency seen", () => {
+    const seen = new Map([["sidecar\u0000a", 100]])
+
+    rememberRecentRecency(seen, [{ key: "sidecar\u0000a", recency: 50 }])
+    expect(seen.get("sidecar\u0000a")).toBe(100)
+    expect(bumpedRecent(new Set(["sidecar\u0000a"]), seen, [{ key: "sidecar\u0000a", recency: 100 }])).toEqual([])
+
+    rememberRecentRecency(seen, [{ key: "sidecar\u0000a", recency: 150 }])
+    expect(seen.get("sidecar\u0000a")).toBe(150)
   })
 })
 

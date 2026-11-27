@@ -109,6 +109,26 @@ describe("Home session index", () => {
     const ended = { ...live, time: { ...live.time, idle: 25 } }
     expect(merge([index], [ended])).toEqual([ended])
   })
+
+  test("keeps the newer recency when merging an indexed row", () => {
+    const indexed = session("root", { time: { created: 1, idle: 5, updated: 10, recency: 200 } })
+    const passiveOlder = { ...indexed, time: { ...indexed.time, updated: 30, recency: 100 } }
+    const passiveNewer = { ...indexed, time: { ...indexed.time, updated: 30, recency: 300 } }
+    const endedOlder = { ...indexed, time: { ...indexed.time, idle: 25, updated: 30, recency: 100 } }
+    const plain = session("plain")
+
+    expect(mergeRootSessionIndex([indexed], [passiveOlder])[0]?.time.recency).toBe(200)
+    expect(mergeRootSessionIndex([indexed], [passiveNewer])[0]?.time.recency).toBe(300)
+    expect(mergeRootSessionIndex([indexed], [endedOlder])[0]?.time.recency).toBe(200)
+    expect(Object.hasOwn(mergeRootSessionIndex([plain], [plain])[0]!.time, "recency")).toBe(false)
+  })
+
+  test("retains by last user prompt when created and updated disagree", () => {
+    const promptedNow = session("a", { time: { created: 1, updated: now } })
+    const newerCreated = session("z", { time: { created: 2, updated: 1 } })
+
+    expect(ids(retainHomeSessions([promptedNow, newerCreated], 1, now))).toEqual(["z", "a"])
+  })
 })
 
 // Home merges locally known sessions and pending removals into the fetched

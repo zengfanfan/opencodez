@@ -133,6 +133,49 @@ test("titlebar search lists recent sessions and opens the typed match", async ({
   await expect(page.getByRole("heading", { name: paletteSession.title, exact: true })).toBeVisible()
 })
 
+test("titlebar search orders sessions by the last user prompt, not activity", async ({ page }) => {
+  const base = 1700000000000
+
+  const olderPrompt = {
+    id: "ses_search_older_prompt",
+    projectID: paletteSession.projectID,
+    directory: paletteSession.directory,
+    title: "Search older prompt",
+    time: { created: base, updated: base + 900, recency: base + 100 },
+  }
+
+  const newerPrompt = {
+    id: "ses_search_newer_prompt",
+    projectID: paletteSession.projectID,
+    directory: paletteSession.directory,
+    title: "Search newer prompt",
+    time: { created: base, updated: base + 200, recency: base + 300 },
+  }
+
+  const fixture = {
+    ...paletteSession,
+    time: { ...paletteSession.time, recency: base + 200 },
+  }
+
+  await openPaletteWorkspace(page, false, [fixture, olderPrompt, newerPrompt])
+
+  const listed = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+
+    return response.request().method() === "GET" && url.pathname === "/api/session" && !url.searchParams.get("search")
+  })
+
+  await page.getByRole("banner").getByRole("button", { name: "Search sessions", exact: true }).click()
+  await listed
+
+  const dialog = page.getByRole("dialog")
+  await expect(dialog.getByRole("option")).toHaveText([
+    /Search newer prompt/,
+    /Palette fixture session/,
+    /Search older prompt/,
+  ])
+})
+
 test("titlebar search asks for one bounded result set after a pause in typing", async ({ page }) => {
   await openPaletteWorkspace(page, true)
   const searches: URL[] = []

@@ -26,15 +26,21 @@ import {
   type RecentSession,
 } from "./recent-sessions-model"
 
+// Most fixtures model a session whose last prompt is its last activity. Tests that separate the two pass explicit time.
 const session = (id: string, updated: number, extra: Partial<SessionInfo> = {}): SessionInfo => ({
   id,
   projectID: "project",
   cost: 0,
   tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-  time: { created: 1, updated },
+  time: { created: 1, updated, recency: updated },
   title: id,
   location: { directory: "/project" },
   ...extra,
+})
+
+const prompted = (id: string, at: number, extra: Partial<SessionInfo> = {}): SessionInfo => ({
+  ...session(id, at, extra),
+  time: { created: 1, updated: at, recency: at },
 })
 
 const item = (server: string, value: SessionInfo): RecentSession => ({
@@ -119,7 +125,10 @@ test("merging prefers the live store and keeps root, unarchived sessions", () =>
       [session("ses_a", 20, { title: "loaded" }), session("ses_live", 5)],
     ),
   ).toEqual([
-    item("server", session("ses_a", 10, { title: "loaded" })),
+    item("server", {
+      ...session("ses_a", 20, { title: "loaded" }),
+      time: { created: 1, updated: 10, recency: 20 },
+    }),
     item("server", session("ses_live", 5)),
   ])
 })
@@ -132,14 +141,19 @@ test.each([
   ["a step", session("ses_b", 30, { time: { created: 1, updated: 30, busy: 30 } })],
   ["a run end", session("ses_b", 30, { time: { created: 1, updated: 30, idle: 30 } })],
 ])("%s does not move a row until the next reload, which re-sorts it", (_, live) => {
-  const order = (fetched: readonly SessionInfo[]) =>
-    mergeRecentSessions("server", fetched, [live]).map((entry) => entry.session.id)
-
-  const snapshot = readyPage([session("ses_a", 20), session("ses_b", 10)])
-  expect(order(snapshot.sessions)).toEqual(["ses_a", "ses_b"])
-  expect(mergeRecentSessions("server", snapshot.sessions, [live])[1]?.session).toEqual({
+  const liveWithRecency = {
     ...live,
-    time: { ...live.time, updated: 10 },
+    time: { ...live.time, recency: 10 },
+  }
+
+  const order = (fetched: readonly SessionInfo[]) =>
+    mergeRecentSessions("server", fetched, [liveWithRecency]).map((entry) => entry.session.id)
+
+  const snapshot = readyPage([prompted("ses_a", 20), prompted("ses_b", 10)])
+  expect(order(snapshot.sessions)).toEqual(["ses_a", "ses_b"])
+  expect(mergeRecentSessions("server", snapshot.sessions, [liveWithRecency])[1]?.session).toEqual({
+    ...liveWithRecency,
+    time: { ...liveWithRecency.time, updated: 10 },
   })
 
   const started = transitionRecentPage(snapshot, { type: "reload", attempt: 1 })
@@ -147,7 +161,7 @@ test.each([
   const reloaded = transitionRecentPage(started.state, {
     type: "succeeded",
     attempt: 1,
-    sessions: [session("ses_b", 30), session("ses_a", 20)],
+    sessions: [prompted("ses_b", 30), prompted("ses_a", 20)],
     next: undefined,
   })
 
@@ -156,7 +170,7 @@ test.each([
 
 test("a session created since the last reload ranks by its live time, an older one outside the pages never above them", () => {
   // Another client renamed an old session, and the live store loaded it with the rename time.
-  const renamed = session("ses_renamed", 300, { time: { created: 5, updated: 300 } })
+  const renamed = session("ses_renamed", 300, { time: { created: 0, updated: 300 } })
   const created = session("ses_created", 200, { time: { created: 200, updated: 200 } })
 
   const merged = mergeRecentSessions("server", [session("ses_a", 100), session("ses_b", 90)], [renamed, created])
@@ -169,15 +183,45 @@ test("a session created since the last reload ranks by its live time, an older o
   ])
 })
 
-test("sessions with equal timestamps order by id, and missing updates fall back to creation", () => {
-  // SAFETY: a page read before `time.updated` existed can omit it; the sorter falls back to `time.created`.
-  const withoutUpdate = { ...session("ses_old", 0), time: { created: 5 } } as SessionInfo
+test("mergeRecentSessions keeps the newer recency on either side", () => {
+  const fetchedNew = { ...session("ses_a", 500), time: { created: 1, updated: 500, recency: 500 } }
+  const liveOld = { ...session("ses_a", 100), time: { created: 1, updated: 100, recency: 100 } }
+  expect(mergeRecentSessions("server", [fetchedNew], [liveOld])[0]?.session.time).toMatchObject({
+    updated: 500,
+    recency: 500,
+  })
+
+  const fetchedOld = { ...session("ses_a", 100), time: { created: 1, updated: 100, recency: 100 } }
+  const liveNew = { ...session("ses_a", 500), time: { created: 1, updated: 500, recency: 500 } }
+  expect(mergeRecentSessions("server", [fetchedOld], [liveNew])[0]?.session.time).toMatchObject({
+    updated: 100,
+    recency: 500,
+  })
+})
+
+test("a fetched creation time is never used as recency", () => {
+  const fetched = { ...session("ses_a", 500), time: { created: 500, updated: 500 } }
+  const live = { ...session("ses_a", 100), time: { created: 1, updated: 100, recency: 100 } }
+
+  expect(mergeRecentSessions("server", [fetched], [live])[0]?.session.time.recency).toBe(100)
+})
+
+test("mergeRecentSessions does not invent a recency field", () => {
+  const plain = { ...session("ses_a", 100), time: { created: 1, updated: 100 } }
+  const merged = mergeRecentSessions("server", [plain], [plain])[0]?.session
+
+  expect(merged && Object.hasOwn(merged.time, "recency")).toBe(false)
+})
+
+test("sessions with equal recency order by id, and a missing recency falls back to creation", () => {
+  // SAFETY: a page read before `time.recency` existed can omit it; the sorter falls back to `time.created`.
+  const withoutRecency = { ...session("ses_old", 999), time: { created: 5, updated: 999 } } as SessionInfo
 
   expect(
     sortRecentSessions([
-      item("server", session("ses_b", 10)),
-      item("server", withoutUpdate),
-      item("server", session("ses_a", 10)),
+      item("server", prompted("ses_b", 10)),
+      item("server", withoutRecency),
+      item("server", prompted("ses_a", 10)),
     ]).map((entry) => entry.session.id),
   ).toEqual(["ses_a", "ses_b", "ses_old"])
 })
@@ -208,9 +252,9 @@ const hour = 60 * 60 * 1000
 // Newest first, one hour apart, ending `older` rows past the 7-day cutoff.
 const timeline = (recent: number, older: number) =>
   sortRecentSessions([
-    ...Array.from({ length: recent }, (_, index) => item("server", session(`ses_r${index}`, now - index * hour))),
+    ...Array.from({ length: recent }, (_, index) => item("server", prompted(`ses_r${index}`, now - index * hour))),
     ...Array.from({ length: older }, (_, index) =>
-      item("server", session(`ses_o${index}`, now - RECENT_WINDOW_MS - (index + 1) * hour)),
+      item("server", prompted(`ses_o${index}`, now - RECENT_WINDOW_MS - (index + 1) * hour)),
     ),
   ])
 

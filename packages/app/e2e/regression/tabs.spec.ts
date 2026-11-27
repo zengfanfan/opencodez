@@ -839,7 +839,7 @@ test("Recent shows the last 7 days, and Show more reveals 30 more rows, fetching
   await expect(more).toBeHidden()
 })
 
-test("Recent keeps the server's order through renames, run ends and window focus, and reloads for a new session", async ({
+test("Recent keeps creation order through renames, run ends and window focus, and reloads for a new session", async ({
   page,
 }) => {
   const t = Date.now() - 60_000
@@ -924,7 +924,7 @@ test("Recent keeps the server's order through renames, run ends and window focus
   await expect(rows).toHaveText([/Tab B session/, /Finished A session/])
   expect(pageOneLoads).toBe(1)
 
-  // A new root session reloads page one, which brings in A's newer server time too.
+  // A new root session reloads page one. It leads by creation; A's newer activity must not move it.
   const created = session({ id: "ses_tab_new", title: "Fresh session", directory: workspace.directory, created: t + 4 })
   workspace.sessions.push(created)
   await workspace.push([
@@ -943,8 +943,77 @@ test("Recent keeps the server's order through renames, run ends and window focus
       },
     } satisfies Extract<OpenCodeEvent, { type: "session.created" }>,
   ])
-  await expect(rows).toHaveText([/Fresh session/, /Finished A session/, /Tab B session/])
-  expect(pageOneLoads).toBe(2)
+  await expect(rows).toHaveText([/Fresh session/, /Tab B session/, /Finished A session/])
+  // The live store already adds the row; the debounced page-one reload still has to happen.
+  await page.clock.runFor(1_000)
+  await expect.poll(() => pageOneLoads).toBe(2)
+})
+
+test("the vertical Recent promotes a session that was only in a fetched page after a user prompt", async ({ page }) => {
+  const base = Date.now() - 60_000
+
+  const target = {
+    id: "ses_vertical_steer_target",
+    title: "Vertical target",
+    time: { created: base, updated: base, recency: base + 100 },
+  }
+
+  const first = {
+    id: "ses_vertical_steer_first",
+    title: "Vertical first",
+    time: { created: base, updated: base + 10, recency: base + 300 },
+  }
+
+  const second = {
+    id: "ses_vertical_steer_second",
+    title: "Vertical second",
+    time: { created: base, updated: base + 5, recency: base + 200 },
+  }
+
+  const workspace = await mockWorkspace(page, {
+    name: "VerticalSteer",
+    sessions: [target, first, second],
+    seed: {
+      tabs: [first.id],
+      settings: { appearance: { tabLayout: "vertical" }, general: { sidebarOrganize: "recent" } },
+    },
+  })
+
+  await page.goto(
+    `/e2e/utils/windows-menu.html?${new URLSearchParams({ server: SERVER, path: sessionHref(first.id, "sidecar") })}`,
+  )
+
+  const recent = page.locator('[data-slot="sidebar-recent"]').getByRole("group", { name: "Recent", exact: true })
+  const rows = recent.locator("[data-titlebar-tab-slot]")
+
+  await expect(rows).toHaveText([/Vertical first/, /Vertical second/, /Vertical target/])
+
+  const refreshed = page.waitForRequest(
+    (request) =>
+      request.method() === "GET" && new URL(request.url()).pathname === `/api/session/${target.id}`,
+  )
+
+  const served = workspace.sessions.find((item) => item.id === target.id)!
+
+  // SAFETY: the mock serves the same loosely typed time shape the request fixture uses.
+  served.time = { created: base, updated: base, recency: base + 900 } as typeof served.time
+  await workspace.push([
+    {
+      id: "evt_vertical_steer",
+      type: "session.inbox.enqueued",
+      created: base + 900,
+      durable: { aggregateID: target.id, seq: 1, version: 1 },
+      location: { directory: workspace.directory },
+      data: {
+        sessionID: target.id,
+        inboxID: "inb_vertical_steer",
+        item: { type: "user", payload: { text: "Steer this session" }, delivery: "steer" },
+      },
+    } satisfies Extract<OpenCodeEvent, { type: "session.inbox.enqueued" }>,
+  ])
+
+  await refreshed
+  await expect(rows).toHaveText([/Vertical target/, /Vertical first/, /Vertical second/])
 })
 
 test("an unfocused window preserves a restored manual unread reminder", async ({ page }) => {
@@ -2629,6 +2698,124 @@ test("the Cozy sidebar drags Recent sessions and keeps the order after reload", 
   await expect(rows).toHaveText([/epsilon/, /delta/, /beta/, /alpha/, /gamma/])
 })
 
+test("the Cozy sidebar keeps creation order when activity changes without recency", async ({ page }) => {
+  const workspace = await mockWorkspace(page, {
+    name: "CozyNoRecency",
+    project: { vcs: undefined },
+    sessions: [
+      { id: "ses_cozy_nr_alpha", title: "No recency alpha", time: { created: T0 + 300, updated: T0 + 100 } },
+      { id: "ses_cozy_nr_beta", title: "No recency beta", time: { created: T0 + 200, updated: T0 + 200 } },
+      { id: "ses_cozy_nr_gamma", title: "No recency gamma", time: { created: T0 + 100, updated: T0 + 300 } },
+    ],
+    seed: { settings: { appearance: { tabLayout: "cozy" } } },
+  })
+
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const recent = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-recent"]')
+  const rows = recent.locator('[data-slot="sidebar-cozy-item"]')
+
+  await expect(rows).toHaveText([/alpha/, /beta/, /gamma/])
+
+  const beta = workspace.sessions.find((item) => item.id === "ses_cozy_nr_beta")!
+  beta.time = { created: T0 + 200, updated: T0 + 900 }
+  await page.reload()
+
+  await expect(rows).toHaveText([/alpha/, /beta/, /gamma/])
+})
+
+test("the Cozy sidebar appends a late-loaded older session after the stored order", async ({ page }) => {
+  const workspace = await mockWorkspace(page, {
+    name: "CozyLateLoad",
+    project: { vcs: undefined },
+    sessions: [
+      { id: "ses_cozy_late_a", title: "Late alpha", time: { created: T0, updated: T0 + 100, recency: T0 + 100 } },
+      { id: "ses_cozy_late_b", title: "Late beta", time: { created: T0, updated: T0 + 200, recency: T0 + 200 } },
+      { id: "ses_cozy_late_c", title: "Late gamma", time: { created: T0, updated: T0 + 300, recency: T0 + 300 } },
+      { id: "ses_cozy_late_d", title: "Late delta", time: { created: T0, updated: T0 + 400, recency: T0 + 400 } },
+      { id: "ses_cozy_late_e", title: "Late epsilon", time: { created: T0, updated: T0 + 500, recency: T0 + 500 } },
+    ],
+    seed: { settings: { appearance: { tabLayout: "cozy" } } },
+  })
+
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const recent = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-recent"]')
+  const rows = recent.locator('[data-slot="sidebar-cozy-item"]')
+
+  await expect(rows).toHaveText([/epsilon/, /delta/, /gamma/, /beta/, /alpha/])
+
+  const from = await rows.filter({ hasText: "Late gamma" }).boundingBox()
+  const to = await rows.filter({ hasText: "Late alpha" }).boundingBox()
+
+  if (!from || !to) throw new Error("Missing Recent row bounds")
+  await page.mouse.move(from.x + 30, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(to.x + 30, to.y + to.height / 2, { steps: 12 })
+  await page.mouse.up()
+
+  await expect(rows).toHaveText([/epsilon/, /delta/, /beta/, /alpha/, /gamma/])
+
+  workspace.sessions.push(
+    session({
+      id: "ses_cozy_late_old",
+      title: "Late old session",
+      directory: workspace.directory,
+      projectID: workspace.projectID,
+      time: { created: T0 + 50, updated: T0 + 50, recency: T0 + 50 },
+    }),
+  )
+  await page.reload()
+
+  await expect(rows).toHaveText([/epsilon/, /delta/, /beta/, /alpha/, /gamma/, /Late old session/])
+})
+
+test("the Cozy sidebar promotes a session after a user steer", async ({ page }) => {
+  const workspace = await mockWorkspace(page, {
+    name: "CozySteer",
+    project: { vcs: undefined },
+    sessions: [
+      { id: "ses_cozy_steer_a", title: "Steer alpha", time: { created: T0, updated: T0 + 100, recency: T0 + 100 } },
+      { id: "ses_cozy_steer_b", title: "Steer beta", time: { created: T0, updated: T0 + 200, recency: T0 + 200 } },
+      { id: "ses_cozy_steer_c", title: "Steer gamma", time: { created: T0, updated: T0 + 300, recency: T0 + 300 } },
+    ],
+    seed: { settings: { appearance: { tabLayout: "cozy" } } },
+  })
+
+  await page.goto("/")
+
+  const sidebar = page.locator('[data-slot="sidebar-cozy"]')
+  const recent = sidebar.locator('[role="group"][aria-labelledby="sidebar-cozy-recent"]')
+  const rows = recent.locator('[data-slot="sidebar-cozy-item"]')
+
+  await expect(rows).toHaveText([/gamma/, /beta/, /alpha/])
+
+  const alpha = workspace.sessions.find((item) => item.id === "ses_cozy_steer_a")!
+
+  // SAFETY: the mock serves the same loosely typed time shape the request fixture uses.
+  alpha.time = { created: T0, updated: T0 + 900, recency: T0 + 900 } as typeof alpha.time
+  await workspace.push([
+    {
+      id: "evt_cozy_steer",
+      type: "session.inbox.enqueued",
+      created: T0 + 900,
+      durable: { aggregateID: alpha.id, seq: 1, version: 1 },
+      location: { directory: workspace.directory },
+      data: {
+        sessionID: alpha.id,
+        inboxID: "inb_cozy_steer",
+        item: { type: "user", payload: { text: "Steer this session" }, delivery: "steer" },
+      },
+    } satisfies Extract<OpenCodeEvent, { type: "session.inbox.enqueued" }>,
+  ])
+
+  await expect(rows).toHaveText([/alpha/, /gamma/, /beta/])
+  await page.reload()
+  await expect(rows).toHaveText([/alpha/, /gamma/, /beta/])
+})
+
 test("the Cozy sidebar finishes a Recent drag after another window changes the stored order", async ({ page }) => {
   const directory = "C:/OpenCode/CozyRecentShift"
   const spareDirectory = "C:/OpenCode/CozySpare"
@@ -3040,12 +3227,18 @@ test("the inbox keeps every unread result separate from expandable Recent, inclu
         id: `ses_unread_${index}`,
         title: `Unread result ${index}`,
         outcome: index === 0 ? "failed" : "succeeded",
-        time: { created: T0, updated: T0 + index, idle: T0 + index },
+        time: { created: T0, updated: T0 + index, recency: T0 + index, idle: T0 + index },
       })),
       ...Array.from({ length: 12 }, (_, index) => ({
         id: `ses_read_${index}`,
         title: index === 0 ? "Never-run session" : `Read session ${index}`,
-        time: { created: T0, updated: T0 + 100 - index, idle: index ? T0 + 100 - index : undefined, viewed: T0 + 200 },
+        time: {
+          created: T0,
+          updated: T0 + 100 - index,
+          recency: T0 + 100 - index,
+          idle: index ? T0 + 100 - index : undefined,
+          viewed: T0 + 200,
+        },
       })),
     ],
     seed: { settings: { appearance: { tabLayout: "inbox" } }, tabs: [] },
