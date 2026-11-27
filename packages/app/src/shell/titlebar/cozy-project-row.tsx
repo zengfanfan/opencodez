@@ -7,6 +7,7 @@ import type { createProjectActions } from "@/home/projects/actions"
 import { ProjectMenuItems } from "@/home/projects/menu"
 import type { ProjectBrowserTarget } from "@/home/projects/browse"
 import { useLanguage } from "@/runtime/i18n/language"
+import { SessionTabAvatarView } from "@/shell/layout/session-tab-avatar"
 import type { CozyProject } from "./cozy-model"
 
 export function CozyProjectRow(props: {
@@ -23,7 +24,16 @@ export function CozyProjectRow(props: {
 
   const info = () => (
     <div class="flex max-w-[320px] flex-col gap-1">
-      <span class="font-medium">{displayName(props.project.project)}</span>
+      <span class="flex items-center gap-1.5 font-medium">
+        <span class="flex size-4 shrink-0 items-center justify-center">
+          <SessionTabAvatarView
+            project={props.project.project}
+            directory={props.project.project.worktree}
+            unread={false}
+          />
+        </span>
+        {displayName(props.project.project)}
+      </span>
       <span dir="auto" class="font-mono text-12-regular text-v2-text-text-faint">
         {props.project.project.worktree}
       </span>

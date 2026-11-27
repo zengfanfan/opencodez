@@ -1,0 +1,13 @@
+/* Keyboard focus on the pin swaps it in for the status mark and the trailing icon. */
+[data-slot="sidebar-cozy-row"] [data-cozy-trailing] > * {
+  transition: opacity 120ms;
+}
+
+[data-slot="sidebar-cozy-row"] [data-cozy-status] {
+  transition: opacity 120ms;
+}
+
+[data-slot="sidebar-cozy-row"]:has(> [data-cozy-pin] :focus-visible) [data-cozy-status],
+[data-slot="sidebar-cozy-row"]:has(> [data-cozy-pin] :focus-visible) [data-cozy-trailing] > :last-child {
+  opacity: 0;
+}

@@ -12,6 +12,7 @@ import type { CozySession } from "./cozy-model"
 import type { SessionInbox } from "./inbox-model"
 import { SessionMenuItems } from "./session-menu-items"
 import { sessionTabTitle } from "./tab-title"
+import "./cozy-session-row.css"
 
 export function CozySessionRow(props: {
   session: CozySession
@@ -27,6 +28,7 @@ export function CozySessionRow(props: {
   const project = () => entry().ctx.projects.forSession(entry().session)
   const title = () => sessionTabTitle(entry().session.title, language.t("session.tab.session"))
   const branch = () => props.inbox.branch(entry())
+  const hasTrailing = () => !!servers.tag(entry().conn) || props.inbox.inWorktree(entry()) || !!branch()
 
   const statusLabel = () =>
     entry().status === "ready" ? undefined : language.t(`sidebar.inbox.status.${entry().status}`)
@@ -63,7 +65,7 @@ export function CozySessionRow(props: {
   return (
     <Menu.Context modal={false}>
       <div
-        class="group/session flex h-7 min-w-0 items-center rounded-[6px] hover:bg-v2-overlay-simple-overlay-hover data-[state=active]:bg-v2-overlay-simple-overlay-pressed"
+        class="group/session relative flex h-7 min-w-0 items-center rounded-[6px] hover:bg-v2-overlay-simple-overlay-hover data-[state=active]:bg-v2-overlay-simple-overlay-pressed"
         data-slot="sidebar-cozy-row"
         data-kind="session"
         data-state={props.inbox.selected(entry()) ? "active" : undefined}
@@ -87,51 +89,66 @@ export function CozySessionRow(props: {
                 />
               </span>
             </Show>
-            <span dir="auto" class="min-w-0 flex-1 truncate font-medium tracking-[-0.04px]">
+            <span
+              dir="auto"
+              class="min-w-0 flex-1 truncate font-medium tracking-[-0.04px]"
+              classList={{ "pe-4": entry().status !== "ready" && !hasTrailing() }}
+            >
               {title()}
             </span>
-            <Show when={servers.tag(entry().conn)}>
-              {(name) => (
-                <Tooltip placement="right" value={name()} class="flex size-4 shrink-0">
-                  <Icon name="server" aria-label={name()} class="text-v2-icon-icon-muted" />
-                </Tooltip>
-              )}
-            </Show>
-            <Show when={props.inbox.inWorktree(entry())}>
-              <Tooltip placement="right" value={entry().session.location.directory} class="flex size-4 shrink-0">
-                <Icon name="outline-worktree" class="text-v2-icon-icon-muted" />
-              </Tooltip>
-            </Show>
-            <Show when={branch()}>
-              {(name) => (
-                <Tooltip placement="right" value={name()} class="flex size-4 shrink-0">
-                  <Icon name="branch" class="text-v2-icon-icon-muted" />
-                </Tooltip>
-              )}
-            </Show>
-            <Show when={entry().status !== "ready"}>
-              <Show
-                when={entry().status === "working"}
-                fallback={
-                  <span
-                    aria-hidden="true"
-                    class="size-[7px] shrink-0 rounded-full"
-                    classList={{
-                      "bg-v2-state-fg-warning": entry().status === "approval" || entry().status === "input",
-                      "bg-v2-state-fg-danger": entry().status === "failed",
-                      "bg-v2-background-bg-accent": entry().status === "done",
-                    }}
-                  />
-                }
-              >
-                <ActivityRing class="shrink-0 text-v2-icon-icon-muted" />
+            <span
+              data-cozy-trailing
+              class="flex items-center gap-1.5 group-hover/session:[&>*:last-child]:opacity-0"
+              classList={{ "[&>*:last-child]:opacity-0": entry().status !== "ready" }}
+            >
+              <Show when={servers.tag(entry().conn)}>
+                {(name) => (
+                  <Tooltip placement="right" value={name()} class="flex size-4 shrink-0">
+                    <Icon name="server" aria-label={name()} class="text-v2-icon-icon-muted" />
+                  </Tooltip>
+                )}
               </Show>
-            </Show>
+              <Show when={props.inbox.inWorktree(entry())}>
+                <Tooltip placement="right" value={entry().session.location.directory} class="flex size-4 shrink-0">
+                  <Icon name="outline-worktree" class="text-v2-icon-icon-muted" />
+                </Tooltip>
+              </Show>
+              <Show when={branch()}>
+                {(name) => (
+                  <Tooltip placement="right" value={name()} class="flex size-4 shrink-0">
+                    <Icon name="branch" class="text-v2-icon-icon-muted" />
+                  </Tooltip>
+                )}
+              </Show>
+            </span>
           </Menu.Context.Trigger>
         </Tooltip>
+        <Show when={entry().status !== "ready"}>
+          <span
+            data-cozy-status
+            aria-hidden="true"
+            class="pointer-events-none absolute end-1.5 top-1/2 z-10 flex size-4 -translate-y-1/2 items-center justify-center transition-opacity group-hover/session:opacity-0"
+          >
+            <Show
+              when={entry().status === "working"}
+              fallback={
+                <span
+                  class="size-[7px] rounded-full"
+                  classList={{
+                    "bg-v2-state-fg-warning": entry().status === "approval" || entry().status === "input",
+                    "bg-v2-state-fg-danger": entry().status === "failed",
+                    "bg-v2-background-bg-accent": entry().status === "done",
+                  }}
+                />
+              }
+            >
+              <ActivityRing class="text-v2-icon-icon-muted" />
+            </Show>
+          </span>
+        </Show>
         <span
           data-cozy-pin
-          class="pointer-events-none flex w-6 shrink-0 justify-center group-hover/session:pointer-events-auto focus-within:pointer-events-auto"
+          class="pointer-events-none absolute end-0.5 top-0 z-10 flex h-7 w-6 items-center justify-center group-hover/session:pointer-events-auto focus-within:pointer-events-auto"
         >
           <IconButton
             icon={<Icon name={props.session.pinned ? "pin-off" : "pin"} />}
